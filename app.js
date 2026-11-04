@@ -1,11 +1,14 @@
 /**
  * TH Crypt - Pure Client-Side File Encryption & Decryption (.th format)
- * Optimized for static hosting (Cloudflare Pages, Vercel, Netlify)
+ * Optimized for static hosting (Cloudflare Pages, Workers, Vercel)
  * Cryptographic Standard:
  *   - Key Derivation: PBKDF2 (SHA-256, 100,000 iterations, 16-byte random salt)
  *   - Cipher: AES-256-GCM (12-byte random IV, authenticated encryption)
  *   - Binary Package: [MAGIC_HEADER(11B)][ORIGINAL_EXT(10B)][SALT(16B)][IV(12B)][ENCRYPTED_PAYLOAD]
  *   - Zero Password Leakage: Password is never stored, logged, or embedded anywhere.
+ * Robust File Handling:
+ *   - Defensive checks against NotFoundError (DOMException)
+ *   - Promise-wrapped FileReader with onload, onerror, onabort
  */
 
 // Binary Format Specification
@@ -44,15 +47,82 @@ function formatBytes(bytes, decimals = 2) {
 }
 
 function getFileExtension(filename) {
+  if (!filename || typeof filename !== 'string') return '';
   const lastDot = filename.lastIndexOf('.');
   if (lastDot === -1 || lastDot === filename.length - 1) return '';
   return filename.substring(lastDot + 1).toLowerCase();
 }
 
 function getBaseName(filename) {
+  if (!filename || typeof filename !== 'string') return 'file';
   const lastDot = filename.lastIndexOf('.');
   if (lastDot === -1) return filename;
   return filename.substring(0, lastDot);
+}
+
+/**
+ * Robust Asynchronous File Reader using FileReader
+ * Catches DOMException: A requested file or directory could not be found
+ */
+function readFileAsArrayBuffer(file) {
+  return new Promise((resolve, reject) => {
+    // 1. Defensive validation
+    if (!file || !(file instanceof Blob)) {
+      return reject(new Error('Tệp tin không tồn tại hoặc không hợp lệ. Vui lòng chọn lại!'));
+    }
+
+    if (typeof file.size !== 'number' || file.size < 0) {
+      return reject(new Error('Không thể xác định kích thước tệp tin. Vui lòng thử lại!'));
+    }
+
+    // 2. Initialize FileReader
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (reader.result instanceof ArrayBuffer) {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Định dạng dữ liệu trả về không tương thích (cần ArrayBuffer).'));
+      }
+    };
+
+    reader.onerror = () => {
+      const err = reader.error;
+      const errMsg = err ? (err.message || '') : '';
+      const errName = err ? (err.name || '') : '';
+
+      // Handle file moved/deleted or access lost
+      if (
+        errName === 'NotFoundError' ||
+        errMsg.toLowerCase().includes('could not be found') ||
+        errMsg.toLowerCase().includes('not found') ||
+        (err && err.code === 8)
+      ) {
+        reject(new Error('Không tìm thấy tệp tin hoặc tệp đã bị di chuyển / thay đổi trên hệ thống. Vui lòng chọn lại tệp!'));
+      } else if (errName === 'NotReadableError') {
+        reject(new Error('Không thể đọc tệp tin (tệp có thể đang bị khóa bởi ứng dụng khác hoặc quyền truy cập bị từ chối).'));
+      } else if (errName === 'SecurityError') {
+        reject(new Error('Trình duyệt từ chối quyền truy cập vào tệp tin này vì lý do bảo mật.'));
+      } else {
+        reject(new Error(errMsg || errName || 'Lỗi xảy ra trong quá trình đọc tệp tin.'));
+      }
+    };
+
+    reader.onabort = () => {
+      reject(new Error('Quá trình đọc tệp tin đã bị gián đoạn hoặc hủy bỏ bởi người dùng.'));
+    };
+
+    try {
+      reader.readAsArrayBuffer(file);
+    } catch (readErr) {
+      const msg = readErr ? (readErr.message || '') : '';
+      if (readErr.name === 'NotFoundError' || msg.toLowerCase().includes('could not be found')) {
+        reject(new Error('Không tìm thấy tệp tin hoặc tệp đã bị di chuyển / thay đổi trên hệ thống. Vui lòng chọn lại!'));
+      } else {
+        reject(new Error('Không thể khởi tạo đọc tệp: ' + msg));
+      }
+    }
+  });
 }
 
 // Key Derivation with PBKDF2
@@ -83,10 +153,15 @@ async function deriveKey(password, salt, keyUsages = ['encrypt']) {
 
 // Encrypt File into .th binary structure
 async function processEncryption(file, password, updateStatus) {
-  const startTime = performance.now();
-  updateStatus('Đang đọc tệp tin vào bộ nhớ client...', 20);
+  if (!file || !(file instanceof Blob)) {
+    throw new Error('Không tìm thấy tệp tin hoặc tệp đã bị hủy. Vui lòng chọn lại tệp!');
+  }
 
-  const fileBuffer = await file.arrayBuffer();
+  const startTime = performance.now();
+  updateStatus('Đang đọc tệp tin vào bộ nhớ client an toàn...', 20);
+
+  // Read file defensively
+  const fileBuffer = await readFileAsArrayBuffer(file);
 
   updateStatus('Đang sinh Salt và khóa an toàn PBKDF2 (100,000 iterations)...', 45);
   const salt = window.crypto.getRandomValues(new Uint8Array(SALT_SIZE));
@@ -139,7 +214,6 @@ async function processEncryption(file, password, updateStatus) {
   const duration = Math.round(performance.now() - startTime);
   updateStatus('Mã hóa thành công!', 100);
 
-  // If input was "photo.png", output is "photo.png.th"
   const outputFilename = `${file.name}.th`;
   const blob = new Blob([thPackage], { type: 'application/octet-stream' });
 
@@ -154,10 +228,15 @@ async function processEncryption(file, password, updateStatus) {
 
 // Decrypt .th binary structure back to original file
 async function processDecryption(file, password, updateStatus) {
+  if (!file || !(file instanceof Blob)) {
+    throw new Error('Không tìm thấy tệp tin hoặc tệp đã bị hủy. Vui lòng chọn lại tệp!');
+  }
+
   const startTime = performance.now();
   updateStatus('Đang đọc tệp .th...', 20);
 
-  const fileBuffer = await file.arrayBuffer();
+  // Read file defensively
+  const fileBuffer = await readFileAsArrayBuffer(file);
 
   if (fileBuffer.byteLength < HEADER_SIZE + 16) {
     throw new Error('Tệp không đúng định dạng .th hoặc dung lượng quá nhỏ để giải mã.');
@@ -210,7 +289,6 @@ async function processDecryption(file, password, updateStatus) {
       encryptedPayload
     );
   } catch (err) {
-    // Web Crypto API throws OperationError when password or tag is incorrect
     throw new Error('Sai mật khẩu hoặc file đã bị sửa đổi/hư hỏng! Không thể giải mã.');
   }
 
@@ -345,10 +423,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // --- Encryption File Selection ---
   function setEncryptFile(file) {
-    if (!file) return;
+    if (!file || !(file instanceof Blob)) return;
+    
+    // Revoke previous URL if any
+    if (state.encrypt.downloadUrl) {
+      URL.revokeObjectURL(state.encrypt.downloadUrl);
+      state.encrypt.downloadUrl = null;
+    }
+
     state.encrypt.file = file;
-    encFileName.textContent = file.name;
-    encFileSize.textContent = formatBytes(file.size);
+    encFileName.textContent = file.name || 'file';
+    encFileSize.textContent = formatBytes(file.size || 0);
     encFileExt.textContent = getFileExtension(file.name) || 'FILE';
     encPreview.classList.add('active');
     encDropzone.style.display = 'none';
@@ -359,15 +444,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function removeEncryptFile() {
     state.encrypt.file = null;
+    if (state.encrypt.downloadUrl) {
+      URL.revokeObjectURL(state.encrypt.downloadUrl);
+      state.encrypt.downloadUrl = null;
+    }
     encFileInput.value = '';
     encPreview.classList.remove('active');
     encDropzone.style.display = 'block';
+    encResultCard.classList.remove('active');
+    encErrorBanner.classList.remove('active');
     updateEncryptBtnState();
   }
 
-  encDropzone.addEventListener('click', () => encFileInput.click());
+  encDropzone.addEventListener('click', () => {
+    encFileInput.click();
+  });
+
+  // Defensive check on file selection
   encFileInput.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) setEncryptFile(e.target.files[0]);
+    if (!e.target || !e.target.files || e.target.files.length === 0) {
+      // User canceled dialog, do not reset existing state
+      return;
+    }
+    setEncryptFile(e.target.files[0]);
   });
 
   encDropzone.addEventListener('dragover', (e) => {
@@ -382,7 +481,7 @@ document.addEventListener('DOMContentLoaded', () => {
   encDropzone.addEventListener('drop', (e) => {
     e.preventDefault();
     encDropzone.classList.remove('drag-active');
-    if (e.dataTransfer.files.length > 0) {
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       setEncryptFile(e.dataTransfer.files[0]);
     }
   });
@@ -404,13 +503,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const isPwd = encPasswordInput.type === 'password';
     encPasswordInput.type = isPwd ? 'text' : 'password';
     encBtnTogglePwd.innerHTML = isPwd 
-      ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`
-      : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
+      ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`
+      : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
   });
 
   // Action: Encrypt
   encBtnAction.addEventListener('click', async () => {
-    if (!state.encrypt.file || !encPasswordInput.value) return;
+    // 1. Pre-execution defensive verification
+    if (!state.encrypt.file) {
+      encErrorText.textContent = 'Không tìm thấy tệp tin hoặc tệp đã bị di chuyển. Vui lòng chọn lại!';
+      encErrorBanner.classList.add('active');
+      return;
+    }
+    if (!encPasswordInput.value) {
+      encErrorText.textContent = 'Vui lòng nhập mật khẩu bảo vệ trước khi mã hóa.';
+      encErrorBanner.classList.add('active');
+      return;
+    }
 
     encBtnAction.disabled = true;
     encErrorBanner.classList.remove('active');
@@ -440,13 +549,19 @@ document.addEventListener('DOMContentLoaded', () => {
       `;
       encResultCard.classList.add('active');
     } catch (err) {
-      console.error(err);
-      encErrorText.textContent = err.message || 'Có lỗi xảy ra trong quá trình mã hóa.';
+      console.error('Lỗi mã hóa:', err);
+      let message = err.message || 'Có lỗi xảy ra trong quá trình mã hóa.';
+      if (err.name === 'NotFoundError' || message.toLowerCase().includes('could not be found')) {
+        message = 'Không tìm thấy tệp tin hoặc tệp đã bị di chuyển / thay đổi trên hệ thống. Vui lòng chọn lại!';
+        removeEncryptFile();
+      }
+      encErrorText.textContent = message;
       encErrorBanner.classList.add('active');
     } finally {
       setTimeout(() => {
         encStatusBox.classList.remove('active');
         encBtnAction.disabled = false;
+        updateEncryptBtnState();
       }, 400);
     }
   });
@@ -464,7 +579,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // --- Decryption File Selection ---
   function setDecryptFile(file) {
-    if (!file) return;
+    if (!file || !(file instanceof Blob)) return;
 
     if (!file.name.toLowerCase().endsWith('.th')) {
       decErrorText.textContent = 'Cảnh báo: Tệp không có đuôi mở rộng .th! Vui lòng chọn tệp .th hợp lệ.';
@@ -473,9 +588,14 @@ document.addEventListener('DOMContentLoaded', () => {
       decErrorBanner.classList.remove('active');
     }
 
+    if (state.decrypt.downloadUrl) {
+      URL.revokeObjectURL(state.decrypt.downloadUrl);
+      state.decrypt.downloadUrl = null;
+    }
+
     state.decrypt.file = file;
-    decFileName.textContent = file.name;
-    decFileSize.textContent = formatBytes(file.size);
+    decFileName.textContent = file.name || 'protected.th';
+    decFileSize.textContent = formatBytes(file.size || 0);
     decFileExt.textContent = '.TH';
     decPreview.classList.add('active');
     decDropzone.style.display = 'none';
@@ -485,15 +605,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function removeDecryptFile() {
     state.decrypt.file = null;
+    if (state.decrypt.downloadUrl) {
+      URL.revokeObjectURL(state.decrypt.downloadUrl);
+      state.decrypt.downloadUrl = null;
+    }
     decFileInput.value = '';
     decPreview.classList.remove('active');
     decDropzone.style.display = 'block';
+    decResultCard.classList.remove('active');
+    decErrorBanner.classList.remove('active');
     updateDecryptBtnState();
   }
 
-  decDropzone.addEventListener('click', () => decFileInput.click());
+  decDropzone.addEventListener('click', () => {
+    decFileInput.click();
+  });
+
+  // Defensive check on decrypt file selection
   decFileInput.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) setDecryptFile(e.target.files[0]);
+    if (!e.target || !e.target.files || e.target.files.length === 0) {
+      return;
+    }
+    setDecryptFile(e.target.files[0]);
   });
 
   decDropzone.addEventListener('dragover', (e) => {
@@ -508,7 +641,7 @@ document.addEventListener('DOMContentLoaded', () => {
   decDropzone.addEventListener('drop', (e) => {
     e.preventDefault();
     decDropzone.classList.remove('drag-active');
-    if (e.dataTransfer.files.length > 0) {
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       setDecryptFile(e.dataTransfer.files[0]);
     }
   });
@@ -523,13 +656,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const isPwd = decPasswordInput.type === 'password';
     decPasswordInput.type = isPwd ? 'text' : 'password';
     decBtnTogglePwd.innerHTML = isPwd 
-      ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`
-      : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
+      ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`
+      : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
   });
 
   // Action: Decrypt
   decBtnAction.addEventListener('click', async () => {
-    if (!state.decrypt.file || !decPasswordInput.value) return;
+    // 1. Pre-execution defensive verification
+    if (!state.decrypt.file) {
+      decErrorText.textContent = 'Không tìm thấy tệp tin hoặc tệp đã bị di chuyển. Vui lòng chọn lại!';
+      decErrorBanner.classList.add('active');
+      return;
+    }
+    if (!decPasswordInput.value) {
+      decErrorText.textContent = 'Vui lòng nhập mật khẩu giải mã.';
+      decErrorBanner.classList.add('active');
+      return;
+    }
 
     decBtnAction.disabled = true;
     decErrorBanner.classList.remove('active');
@@ -560,13 +703,19 @@ document.addEventListener('DOMContentLoaded', () => {
       `;
       decResultCard.classList.add('active');
     } catch (err) {
-      console.error(err);
-      decErrorText.textContent = err.message || 'Lỗi giải mã: Vui lòng kiểm tra lại mật khẩu hoặc tệp tin.';
+      console.error('Lỗi giải mã:', err);
+      let message = err.message || 'Lỗi giải mã: Vui lòng kiểm tra lại mật khẩu hoặc tệp tin.';
+      if (err.name === 'NotFoundError' || message.toLowerCase().includes('could not be found')) {
+        message = 'Không tìm thấy tệp tin hoặc tệp đã bị di chuyển / thay đổi trên hệ thống. Vui lòng chọn lại!';
+        removeDecryptFile();
+      }
+      decErrorText.textContent = message;
       decErrorBanner.classList.add('active');
     } finally {
       setTimeout(() => {
         decStatusBox.classList.remove('active');
         decBtnAction.disabled = false;
+        updateDecryptBtnState();
       }, 400);
     }
   });
