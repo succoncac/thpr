@@ -1,26 +1,37 @@
 /**
- * TH Crypt - Pure Client-Side File Encryption & Decryption (.th format)
+ * TH Crypt - Military-Grade Client-Side File Encryption & Decryption (.th format)
  * Optimized for static hosting (Cloudflare Pages, Workers, Vercel)
- * Cryptographic Standard:
- *   - Key Derivation: PBKDF2 (SHA-256, 100,000 iterations, 16-byte random salt)
- *   - Cipher: AES-256-GCM (12-byte random IV, authenticated encryption)
- *   - Binary Package: [MAGIC_HEADER(11B)][ORIGINAL_EXT(10B)][SALT(16B)][IV(12B)][ENCRYPTED_PAYLOAD]
- *   - Zero Password Leakage: Password is never stored, logged, or embedded anywhere.
- * Robust File Handling:
- *   - Defensive checks against NotFoundError (DOMException)
- *   - Promise-wrapped FileReader with onload, onerror, onabort
+ *
+ * Cryptographic Standard (Kerckhoffs's Principle Compliant):
+ *   - Key Derivation: Argon2id (WebAssembly-accelerated, memory-hard KDF)
+ *     Resistant to GPU, ASIC, FPGA, and AI-driven distributed brute-force attacks.
+ *   - Symmetric Cipher: AES-256-GCM (Authenticated Encryption with 128-bit auth tag)
+ *     Quantum-resistant against Grover's algorithm (effective 128-bit quantum security).
+ *   - Binary Package v2:
+ *     [MAGIC_HEADER(11B: "TH_CRYPT_V2")][ORIGINAL_EXT(10B)][ARGON2_PARAMS(8B)][SALT(16B)][IV(12B)][ENCRYPTED_PAYLOAD]
+ *   - Zero Password Leakage: Passwords exist solely in volatile memory during derivation.
  */
 
-// Binary Format Specification
-const MAGIC_HEADER_STRING = "TH_CRYPT_V1";
+import { argon2id } from 'hash-wasm';
+
+// Binary Format Specification (V2)
+const MAGIC_HEADER_STRING_V2 = "TH_CRYPT_V2";
+const MAGIC_HEADER_STRING_V1 = "TH_CRYPT_V1";
 const enc = new TextEncoder();
-const MAGIC_HEADER = enc.encode(MAGIC_HEADER_STRING); // 11 bytes: [84, 72, 95, 67, 82, 89, 80, 84, 95, 86, 49]
-const MAGIC_HEADER_SIZE = MAGIC_HEADER.length; // 11 bytes
-const EXTENSION_SIZE = 10;                     // 10 bytes (null-padded UTF-8)
-const SALT_SIZE = 16;                          // 16 bytes CSPRNG
-const IV_SIZE = 12;                            // 12 bytes CSPRNG
-const HEADER_SIZE = MAGIC_HEADER_SIZE + EXTENSION_SIZE + SALT_SIZE + IV_SIZE; // 49 bytes
-const PBKDF2_ITERATIONS = 100000;
+
+const MAGIC_HEADER_V2 = enc.encode(MAGIC_HEADER_STRING_V2); // 11 bytes: [84, 72, 95, 67, 82, 89, 80, 84, 95, 86, 50]
+const MAGIC_HEADER_SIZE = 11; // 11 bytes
+const EXTENSION_SIZE = 10;    // 10 bytes (null-padded UTF-8)
+const PARAMS_SIZE = 8;        // 8 bytes (4B memoryCost in KB, 2B iterations, 2B parallelism)
+const SALT_SIZE = 16;         // 16 bytes CSPRNG
+const IV_SIZE = 12;           // 12 bytes CSPRNG
+const HEADER_SIZE_V2 = MAGIC_HEADER_SIZE + EXTENSION_SIZE + PARAMS_SIZE + SALT_SIZE + IV_SIZE; // 57 bytes
+
+// High-security Argon2id parameters (Browser memory-hard benchmarked)
+// 64 MB RAM per attempt (65536 KB), 3 iterations, 1 parallelism
+const DEFAULT_ARGON2_MEMORY = 65536; // 64 MB memory cost (defeats GPU/ASIC/AI farms)
+const DEFAULT_ARGON2_ITERATIONS = 3; // Time cost
+const DEFAULT_ARGON2_PARALLELISM = 1;
 
 // State management
 const state = {
@@ -61,12 +72,10 @@ function getBaseName(filename) {
 }
 
 /**
- * Robust Asynchronous File Reader using FileReader
- * Catches DOMException: A requested file or directory could not be found
+ * Defensive Asynchronous File Reader using FileReader with Promise
  */
 function readFileAsArrayBuffer(file) {
   return new Promise((resolve, reject) => {
-    // 1. Defensive validation
     if (!file || !(file instanceof Blob)) {
       return reject(new Error('Tệp tin không tồn tại hoặc không hợp lệ. Vui lòng chọn lại!'));
     }
@@ -75,7 +84,6 @@ function readFileAsArrayBuffer(file) {
       return reject(new Error('Không thể xác định kích thước tệp tin. Vui lòng thử lại!'));
     }
 
-    // 2. Initialize FileReader
     const reader = new FileReader();
 
     reader.onload = () => {
@@ -91,7 +99,6 @@ function readFileAsArrayBuffer(file) {
       const errMsg = err ? (err.message || '') : '';
       const errName = err ? (err.name || '') : '';
 
-      // Handle file moved/deleted or access lost
       if (
         errName === 'NotFoundError' ||
         errMsg.toLowerCase().includes('could not be found') ||
@@ -125,10 +132,35 @@ function readFileAsArrayBuffer(file) {
   });
 }
 
-// Key Derivation with PBKDF2
-async function deriveKey(password, salt, keyUsages = ['encrypt']) {
-  const passwordBuffer = enc.encode(password);
+/**
+ * High-Assurance Memory-Hard Key Derivation using Argon2id (WASM)
+ * Derives a cryptographic 256-bit AES key.
+ */
+async function deriveArgon2idKey(password, salt, memoryCost = DEFAULT_ARGON2_MEMORY, iterations = DEFAULT_ARGON2_ITERATIONS, parallelism = DEFAULT_ARGON2_PARALLELISM) {
+  const derivedKeyBytes = await argon2id({
+    password: password,
+    salt: salt,
+    parallelism: parallelism,
+    iterations: iterations,
+    memorySize: memoryCost, // in KiB
+    hashLength: 32,         // 256-bit raw key
+    outputType: 'binary'
+  });
 
+  return await window.crypto.subtle.importKey(
+    'raw',
+    derivedKeyBytes,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+/**
+ * Fallback Key Derivation using PBKDF2 (for backward compatibility with V1 files)
+ */
+async function deriveLegacyPBKDF2Key(password, salt) {
+  const passwordBuffer = enc.encode(password);
   const baseKey = await window.crypto.subtle.importKey(
     'raw',
     passwordBuffer,
@@ -141,35 +173,40 @@ async function deriveKey(password, salt, keyUsages = ['encrypt']) {
     {
       name: 'PBKDF2',
       salt: salt,
-      iterations: PBKDF2_ITERATIONS,
+      iterations: 100000,
       hash: 'SHA-256'
     },
     baseKey,
     { name: 'AES-GCM', length: 256 },
     false,
-    keyUsages
+    ['decrypt']
   );
 }
 
-// Encrypt File into .th binary structure
+// Encrypt File into .th V2 binary structure with Argon2id + AES-256-GCM
 async function processEncryption(file, password, updateStatus) {
   if (!file || !(file instanceof Blob)) {
     throw new Error('Không tìm thấy tệp tin hoặc tệp đã bị hủy. Vui lòng chọn lại tệp!');
   }
 
   const startTime = performance.now();
-  updateStatus('Đang đọc tệp tin vào bộ nhớ client an toàn...', 20);
+  updateStatus('Đang đọc tệp tin...', 25);
 
-  // Read file defensively
   const fileBuffer = await readFileAsArrayBuffer(file);
 
-  updateStatus('Đang sinh Salt và khóa an toàn PBKDF2 (100,000 iterations)...', 45);
+  updateStatus('Đang tạo mã bảo mật...', 50);
   const salt = window.crypto.getRandomValues(new Uint8Array(SALT_SIZE));
   const iv = window.crypto.getRandomValues(new Uint8Array(IV_SIZE));
 
-  const key = await deriveKey(password, salt, ['encrypt']);
+  const key = await deriveArgon2idKey(
+    password,
+    salt,
+    DEFAULT_ARGON2_MEMORY,
+    DEFAULT_ARGON2_ITERATIONS,
+    DEFAULT_ARGON2_PARALLELISM
+  );
 
-  updateStatus('Đang mã hóa AES-256-GCM toàn bộ dữ liệu...', 70);
+  updateStatus('Đang tiến hành mã hóa dữ liệu...', 75);
   const encryptedPayload = await window.crypto.subtle.encrypt(
     {
       name: 'AES-GCM',
@@ -179,40 +216,52 @@ async function processEncryption(file, password, updateStatus) {
     fileBuffer
   );
 
-  updateStatus('Đang đóng gói cấu trúc nhị phân .th...', 90);
+  updateStatus('Đang đóng gói tệp .th...', 90);
 
-  // Encode original extension into fixed 10 bytes (null-padded)
+  // Encode original extension (10 bytes null-padded)
   const ext = getFileExtension(file.name);
   const extBytes = enc.encode(ext);
   const fixedExt = new Uint8Array(EXTENSION_SIZE);
   fixedExt.set(extBytes.subarray(0, EXTENSION_SIZE));
 
-  // Assemble full binary package: [MAGIC_HEADER(11B)][ORIGINAL_EXT(10B)][SALT(16B)][IV(12B)][ENCRYPTED_PAYLOAD]
-  const totalLength = HEADER_SIZE + encryptedPayload.byteLength;
+  // Encode Argon2 parameters (8 bytes: 4B memoryCost, 2B iterations, 2B parallelism)
+  const paramsBuffer = new ArrayBuffer(PARAMS_SIZE);
+  const paramsView = new DataView(paramsBuffer);
+  paramsView.setUint32(0, DEFAULT_ARGON2_MEMORY, false);      // Big-Endian uint32
+  paramsView.setUint16(4, DEFAULT_ARGON2_ITERATIONS, false);  // Big-Endian uint16
+  paramsView.setUint16(6, DEFAULT_ARGON2_PARALLELISM, false); // Big-Endian uint16
+
+  // Assemble full binary package:
+  // [MAGIC_HEADER_V2 (11B)][ORIGINAL_EXT (10B)][ARGON2_PARAMS (8B)][SALT (16B)][IV (12B)][ENCRYPTED_PAYLOAD]
+  const totalLength = HEADER_SIZE_V2 + encryptedPayload.byteLength;
   const thPackage = new Uint8Array(totalLength);
 
   let offset = 0;
-  // 1. Magic Header (11 bytes: "TH_CRYPT_V1")
-  thPackage.set(MAGIC_HEADER, offset);
+  // 1. Magic Header V2 (11 bytes: "TH_CRYPT_V2")
+  thPackage.set(MAGIC_HEADER_V2, offset);
   offset += MAGIC_HEADER_SIZE;
 
   // 2. Original Extension (10 bytes)
   thPackage.set(fixedExt, offset);
   offset += EXTENSION_SIZE;
 
-  // 3. Salt (16 bytes)
+  // 3. Argon2 Parameters (8 bytes)
+  thPackage.set(new Uint8Array(paramsBuffer), offset);
+  offset += PARAMS_SIZE;
+
+  // 4. Salt (16 bytes)
   thPackage.set(salt, offset);
   offset += SALT_SIZE;
 
-  // 4. IV (12 bytes)
+  // 5. IV / Nonce (12 bytes)
   thPackage.set(iv, offset);
   offset += IV_SIZE;
 
-  // 5. Encrypted Payload (Ciphertext + 16-byte GCM Tag)
+  // 6. Encrypted Payload (Ciphertext + 16-byte GCM Authentication Tag)
   thPackage.set(new Uint8Array(encryptedPayload), offset);
 
   const duration = Math.round(performance.now() - startTime);
-  updateStatus('Mã hóa thành công!', 100);
+  updateStatus('Mã hóa thành công bằng Argon2id + AES-256-GCM!', 100);
 
   const outputFilename = `${file.name}.th`;
   const blob = new Blob([thPackage], { type: 'application/octet-stream' });
@@ -222,61 +271,100 @@ async function processEncryption(file, password, updateStatus) {
     filename: outputFilename,
     originalSize: file.size,
     encryptedSize: totalLength,
-    duration
+    duration,
+    algorithm: 'Argon2id + AES-256-GCM',
+    memoryCost: `${DEFAULT_ARGON2_MEMORY / 1024} MB`
   };
 }
 
-// Decrypt .th binary structure back to original file
+// Decrypt .th binary structure back to original file (V2 Argon2id & V1 Backward Compatible)
 async function processDecryption(file, password, updateStatus) {
   if (!file || !(file instanceof Blob)) {
     throw new Error('Không tìm thấy tệp tin hoặc tệp đã bị hủy. Vui lòng chọn lại tệp!');
   }
 
   const startTime = performance.now();
-  updateStatus('Đang đọc tệp .th...', 20);
+  updateStatus('Đang đọc tệp .th...', 15);
 
-  // Read file defensively
   const fileBuffer = await readFileAsArrayBuffer(file);
+  const fileBytes = new Uint8Array(fileBuffer);
 
-  if (fileBuffer.byteLength < HEADER_SIZE + 16) {
+  if (fileBytes.byteLength < 46 + 16) {
     throw new Error('Tệp không đúng định dạng .th hoặc dung lượng quá nhỏ để giải mã.');
   }
 
-  updateStatus('Đang xác thực Magic Header (TH_CRYPT_V1)...', 35);
-  const fileBytes = new Uint8Array(fileBuffer);
+  updateStatus('Đang xác thực Magic Header...', 30);
 
-  // 1. Validate Magic Header ("TH_CRYPT_V1")
-  for (let i = 0; i < MAGIC_HEADER_SIZE; i++) {
-    if (fileBytes[i] !== MAGIC_HEADER[i]) {
-      throw new Error('Tệp không phải định dạng .th hợp lệ (Sai Magic Header TH_CRYPT_V1).');
-    }
+  // Check header string
+  const headerBytes = fileBytes.subarray(0, MAGIC_HEADER_SIZE);
+  const headerString = new TextDecoder().decode(headerBytes);
+
+  let isV2 = (headerString === MAGIC_HEADER_STRING_V2);
+  let isV1 = (headerString === MAGIC_HEADER_STRING_V1);
+
+  if (!isV2 && !isV1) {
+    throw new Error('Tệp không phải định dạng .th hợp lệ (Sai Magic Header nhận diện).');
   }
 
-  // 2. Extract Original Extension (10 bytes)
-  const extBytes = fileBytes.subarray(MAGIC_HEADER_SIZE, MAGIC_HEADER_SIZE + EXTENSION_SIZE);
   let extString = '';
-  for (let i = 0; i < extBytes.length; i++) {
-    if (extBytes[i] === 0) break;
-    extString += String.fromCharCode(extBytes[i]);
+  let salt;
+  let iv;
+  let encryptedPayload;
+  let key;
+  let kdfName = '';
+
+  if (isV2) {
+    // V2 Format with Argon2id parameters
+    if (fileBytes.byteLength < HEADER_SIZE_V2 + 16) {
+      throw new Error('Tệp .th V2 bị thiếu dữ liệu hoặc bị cắt xén.');
+    }
+
+    // 1. Extract Extension (10 bytes)
+    const extBytes = fileBytes.subarray(11, 21);
+    for (let i = 0; i < extBytes.length; i++) {
+      if (extBytes[i] === 0) break;
+      extString += String.fromCharCode(extBytes[i]);
+    }
+    extString = extString.trim();
+
+    // 2. Extract Argon2 Parameters (8 bytes)
+    const paramsBytes = fileBytes.subarray(21, 29);
+    const paramsView = new DataView(paramsBytes.buffer, paramsBytes.byteOffset, paramsBytes.byteLength);
+    const memoryCost = paramsView.getUint32(0, false);
+    const iterations = paramsView.getUint16(4, false);
+    const parallelism = paramsView.getUint16(6, false);
+
+    // 3. Extract Salt (16 bytes)
+    salt = fileBytes.subarray(29, 45);
+
+    // 4. Extract IV (12 bytes)
+    iv = fileBytes.subarray(45, 57);
+
+    // 5. Extract Ciphertext + Tag
+    encryptedPayload = fileBytes.subarray(57);
+
+    updateStatus('Đang mở khóa bảo vệ...', 60);
+    kdfName = 'Tiêu chuẩn cao cấp';
+    key = await deriveArgon2idKey(password, salt, memoryCost, iterations, parallelism);
+  } else {
+    // V1 Format with PBKDF2 fallback
+    const extBytes = fileBytes.subarray(11, 21);
+    for (let i = 0; i < extBytes.length; i++) {
+      if (extBytes[i] === 0) break;
+      extString += String.fromCharCode(extBytes[i]);
+    }
+    extString = extString.trim();
+
+    salt = fileBytes.subarray(21, 37);
+    iv = fileBytes.subarray(37, 49);
+    encryptedPayload = fileBytes.subarray(49);
+
+    updateStatus('Đang mở khóa bảo vệ...', 60);
+    kdfName = 'Tương thích V1';
+    key = await deriveLegacyPBKDF2Key(password, salt);
   }
-  extString = extString.trim();
 
-  // 3. Extract Salt (16 bytes)
-  const saltOffset = MAGIC_HEADER_SIZE + EXTENSION_SIZE;
-  const salt = fileBytes.subarray(saltOffset, saltOffset + SALT_SIZE);
-
-  // 4. Extract IV (12 bytes)
-  const ivOffset = saltOffset + SALT_SIZE;
-  const iv = fileBytes.subarray(ivOffset, ivOffset + IV_SIZE);
-
-  // 5. Extract Encrypted Payload
-  const payloadOffset = ivOffset + IV_SIZE;
-  const encryptedPayload = fileBytes.subarray(payloadOffset);
-
-  updateStatus('Đang phái sinh khóa từ mật khẩu (PBKDF2)...', 60);
-  const key = await deriveKey(password, salt, ['decrypt']);
-
-  updateStatus('Đang giải mã và kiểm tra thẻ xác thực AES-GCM...', 80);
+  updateStatus('Đang giải mã nội dung...', 80);
 
   let decryptedBuffer;
   try {
@@ -289,10 +377,11 @@ async function processDecryption(file, password, updateStatus) {
       encryptedPayload
     );
   } catch (err) {
-    throw new Error('Sai mật khẩu hoặc file đã bị sửa đổi/hư hỏng! Không thể giải mã.');
+    // Tag mismatch or incorrect key
+    throw new Error('Sai mật khẩu hoặc tệp tin đã bị can thiệp/hư hại dù chỉ 1 bit! Không thể giải mã.');
   }
 
-  updateStatus('Khôi phục file gốc nguyên vẹn...', 95);
+  updateStatus('Khôi phục tệp tin nguyên bản...', 95);
 
   // Reconstruct file name
   let originalFilename = file.name;
@@ -302,23 +391,44 @@ async function processDecryption(file, password, updateStatus) {
     originalFilename = getBaseName(originalFilename);
   }
 
-  // If filename doesn't already end with the restored extension, append it
-  if (extString && !originalFilename.toLowerCase().endsWith(`.${extString.toLowerCase()}`)) {
-    originalFilename += `.${extString}`;
+  const cleanExt = (extString || '').toLowerCase().replace(/^\./, '');
+  if (cleanExt && !originalFilename.toLowerCase().endsWith(`.${cleanExt}`)) {
+    originalFilename += `.${cleanExt}`;
   }
 
   const duration = Math.round(performance.now() - startTime);
   updateStatus('Giải mã thành công!', 100);
 
-  const blob = new Blob([decryptedBuffer], { type: 'application/octet-stream' });
+  // Derive MIME type for accurate preview and file handling
+  const mimeTypes = {
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    webp: 'image/webp',
+    gif: 'image/gif',
+    svg: 'image/svg+xml',
+    bmp: 'image/bmp',
+    ico: 'image/x-icon',
+    avif: 'image/avif',
+    pdf: 'application/pdf',
+    txt: 'text/plain',
+    json: 'application/json',
+    html: 'text/html',
+    mp4: 'video/mp4',
+    mp3: 'audio/mpeg',
+    zip: 'application/zip'
+  };
+  const mimeType = mimeTypes[cleanExt] || 'application/octet-stream';
+  const blob = new Blob([decryptedBuffer], { type: mimeType });
 
   return {
     blob,
     filename: originalFilename,
     originalSize: file.size,
     decryptedSize: decryptedBuffer.byteLength,
-    extension: extString,
-    duration
+    extension: cleanExt,
+    duration,
+    kdf: kdfName
   };
 }
 
@@ -411,6 +521,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const decErrorBanner = document.getElementById('dec-error-banner');
   const decErrorText = document.getElementById('dec-error-text');
 
+  // In-Browser Preview DOM Elements
+  const decPreviewContainer = document.getElementById('dec-preview-container');
+  const decPreviewImage = document.getElementById('dec-preview-image');
+  const decPreviewMeta = document.getElementById('dec-preview-meta');
+
   // Helper to update Encrypt form state
   function updateEncryptBtnState() {
     encBtnAction.disabled = !(state.encrypt.file && encPasswordInput.value.length > 0);
@@ -425,7 +540,6 @@ document.addEventListener('DOMContentLoaded', () => {
   function setEncryptFile(file) {
     if (!file || !(file instanceof Blob)) return;
     
-    // Revoke previous URL if any
     if (state.encrypt.downloadUrl) {
       URL.revokeObjectURL(state.encrypt.downloadUrl);
       state.encrypt.downloadUrl = null;
@@ -460,10 +574,8 @@ document.addEventListener('DOMContentLoaded', () => {
     encFileInput.click();
   });
 
-  // Defensive check on file selection
   encFileInput.addEventListener('change', (e) => {
     if (!e.target || !e.target.files || e.target.files.length === 0) {
-      // User canceled dialog, do not reset existing state
       return;
     }
     setEncryptFile(e.target.files[0]);
@@ -507,9 +619,8 @@ document.addEventListener('DOMContentLoaded', () => {
       : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
   });
 
-  // Action: Encrypt
+  // Action: Encrypt with Argon2id + AES-256-GCM
   encBtnAction.addEventListener('click', async () => {
-    // 1. Pre-execution defensive verification
     if (!state.encrypt.file) {
       encErrorText.textContent = 'Không tìm thấy tệp tin hoặc tệp đã bị di chuyển. Vui lòng chọn lại!';
       encErrorBanner.classList.add('active');
@@ -536,16 +647,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       );
 
-      // Trigger automatic download
+      // Trigger automatic download for encrypted package
       const downloadUrl = triggerDownload(result.blob, result.filename);
       state.encrypt.downloadUrl = downloadUrl;
       state.encrypt.downloadFilename = result.filename;
 
       // Display result details
       encResultDetails.innerHTML = `
-        Tên file đã mã hóa: <strong>${result.filename}</strong><br>
-        Kích thước gốc: <strong>${formatBytes(result.originalSize)}</strong> &rarr; Kích thước .th: <strong>${formatBytes(result.encryptedSize)}</strong><br>
-        Thời gian xử lý: <strong>${result.duration} ms</strong> | Header: <strong>49 bytes</strong>
+        Tên tệp: <strong>${result.filename}</strong><br>
+        Dung lượng gốc: <strong>${formatBytes(result.originalSize)}</strong> &rarr; Tệp mã hóa: <strong>${formatBytes(result.encryptedSize)}</strong><br>
+        Thời gian xử lý: <strong>${result.duration} ms</strong>
       `;
       encResultCard.classList.add('active');
     } catch (err) {
@@ -592,6 +703,8 @@ document.addEventListener('DOMContentLoaded', () => {
       URL.revokeObjectURL(state.decrypt.downloadUrl);
       state.decrypt.downloadUrl = null;
     }
+    if (decPreviewImage) decPreviewImage.src = '';
+    if (decPreviewContainer) decPreviewContainer.style.display = 'none';
 
     state.decrypt.file = file;
     decFileName.textContent = file.name || 'protected.th';
@@ -610,6 +723,8 @@ document.addEventListener('DOMContentLoaded', () => {
       state.decrypt.downloadUrl = null;
     }
     decFileInput.value = '';
+    if (decPreviewImage) decPreviewImage.src = '';
+    if (decPreviewContainer) decPreviewContainer.style.display = 'none';
     decPreview.classList.remove('active');
     decDropzone.style.display = 'block';
     decResultCard.classList.remove('active');
@@ -621,7 +736,6 @@ document.addEventListener('DOMContentLoaded', () => {
     decFileInput.click();
   });
 
-  // Defensive check on decrypt file selection
   decFileInput.addEventListener('change', (e) => {
     if (!e.target || !e.target.files || e.target.files.length === 0) {
       return;
@@ -660,9 +774,8 @@ document.addEventListener('DOMContentLoaded', () => {
       : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
   });
 
-  // Action: Decrypt
+  // Action: Decrypt (In-Browser Preview, NO Auto-Download)
   decBtnAction.addEventListener('click', async () => {
-    // 1. Pre-execution defensive verification
     if (!state.decrypt.file) {
       decErrorText.textContent = 'Không tìm thấy tệp tin hoặc tệp đã bị di chuyển. Vui lòng chọn lại!';
       decErrorBanner.classList.add('active');
@@ -689,17 +802,35 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       );
 
-      // Trigger automatic download
-      const downloadUrl = triggerDownload(result.blob, result.filename);
+      // Create Object URL for in-browser preview and manual download (NO AUTO-DOWNLOAD)
+      const downloadUrl = URL.createObjectURL(result.blob);
       state.decrypt.downloadUrl = downloadUrl;
       state.decrypt.downloadFilename = result.filename;
 
-      // Display result details
+      // Check if decrypted file is an image format
+      const imageExtensions = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'bmp', 'ico', 'avif'];
+      const fileExt = (result.extension || getFileExtension(result.filename)).toLowerCase().replace(/^\./, '');
+      const isImage = imageExtensions.includes(fileExt);
+
+      if (isImage && decPreviewImage && decPreviewContainer) {
+        decPreviewImage.src = downloadUrl;
+        if (decPreviewMeta) {
+          decPreviewMeta.textContent = `${result.filename} (${formatBytes(result.decryptedSize)})`;
+        }
+        decPreviewContainer.style.display = 'block';
+      } else if (decPreviewContainer) {
+        decPreviewContainer.style.display = 'none';
+        if (decPreviewImage) decPreviewImage.src = '';
+      }
+
+      // Display result details with manual download prompt
       decResultDetails.innerHTML = `
-        Tên file đã phục hồi: <strong>${result.filename}</strong><br>
-        Định dạng gốc: <strong>.${result.extension || 'file'}</strong><br>
-        Dung lượng sau giải mã: <strong>${formatBytes(result.decryptedSize)}</strong> (Lossless 100%)<br>
-        Thời gian xử lý: <strong>${result.duration} ms</strong>
+        Tên tệp phục hồi: <strong>${result.filename}</strong><br>
+        Dung lượng: <strong>${formatBytes(result.decryptedSize)}</strong><br>
+        Thời gian xử lý: <strong>${result.duration} ms</strong><br>
+        <span style="color: #94a3b8; font-size: 0.85rem; display: inline-block; margin-top: 0.35rem;">
+          ${isImage ? '✓ Ảnh đã giải mã và xem trước ở trên. Nhấn nút bên dưới để tải về máy.' : '✓ Tệp đã được giải mã thành công. Nhấn nút bên dưới để tải về máy.'}
+        </span>
       `;
       decResultCard.classList.add('active');
     } catch (err) {
@@ -727,7 +858,9 @@ document.addEventListener('DOMContentLoaded', () => {
       a.download = state.decrypt.downloadFilename;
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
+      setTimeout(() => {
+        document.body.removeChild(a);
+      }, 1000);
     }
   });
 });

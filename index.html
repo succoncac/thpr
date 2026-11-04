@@ -4,11 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TH Crypt - Mã Hóa &amp; Giải Mã File .th</title>
-    <meta name="description" content="Ứng dụng web client-side bảo mật cao cấp mã hóa và giải mã file bằng AES-256-GCM và PBKDF2 định dạng độc quyền .th" />
+    <meta name="description" content="Ứng dụng mã hóa và giải mã file định dạng .th an toàn chạy trực tiếp trên trình duyệt." />
     <meta property="og:title" content="TH Crypt - Mã Hóa &amp; Giải Mã File .th" />
-    <meta property="og:description" content="Ứng dụng web client-side bảo mật cao cấp mã hóa và giải mã file bằng AES-256-GCM và PBKDF2 định dạng độc quyền .th" />
+    <meta property="og:description" content="Ứng dụng mã hóa và giải mã file định dạng .th an toàn chạy trực tiếp trên trình duyệt." />
     <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary_large_image" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -27,7 +26,7 @@
         </div>
         <h1 class="app-title">Mã Hóa &amp; Giải Mã Định Dạng <span class="highlight-th">.th</span></h1>
         <p class="app-subtitle">
-          Bảo mật cấp quân sự với thuật toán <strong>AES-256-GCM</strong> và phái sinh khóa <strong>PBKDF2</strong> (SHA-256, 100,000 vòng lặp). File đóng gói không lưu mật khẩu dưới bất kỳ hình thức nào.
+          Bảo mật an toàn tuyệt đối ngay trên trình duyệt. Mọi dữ liệu được mã hóa cục bộ và không lưu mật khẩu.
         </p>
       </header>
 
@@ -46,7 +45,7 @@
               </div>
               <div>
                 <h2 id="encrypt-heading" class="panel-title">Mã Hóa File</h2>
-                <p class="panel-desc">Chuyển đổi bất kỳ tệp tin nào sang định dạng .th</p>
+                <p class="panel-desc">Chuyển đổi file bất kỳ sang định dạng .th</p>
               </div>
             </div>
             <span class="tag-format tag-encrypt">OUTPUT: .th</span>
@@ -84,7 +83,7 @@
           <!-- Password Input & Strength -->
           <div class="form-group">
             <label class="form-label" for="enc-password">
-              <span>Mật khẩu bảo vệ (Key Derivation)</span>
+              <span>Mật khẩu bảo vệ</span>
               <span id="pwd-strength-label" class="pwd-strength-label">Độ mạnh mật khẩu</span>
             </label>
             <div class="input-password-wrapper">
@@ -175,7 +174,7 @@
               </div>
               <div>
                 <h2 id="decrypt-heading" class="panel-title">Giải Mã File .th</h2>
-                <p class="panel-desc">Khôi phục nguyên vẹn 100% dữ liệu gốc và định dạng ban đầu</p>
+                <p class="panel-desc">Khôi phục file gốc và xem trước ảnh trực tiếp</p>
               </div>
             </div>
             <span class="tag-format tag-decrypt">INPUT: .th</span>
@@ -191,7 +190,7 @@
               <polyline points="9 15 12 18 15 15"></polyline>
             </svg>
             <div class="dropzone-text">Chọn tệp .th hoặc Kéo thả vào đây</div>
-            <div class="dropzone-subtext">Chỉ nhận tệp có cấu trúc Magic Header TH_CRYPT_V1 hợp lệ</div>
+            <div class="dropzone-subtext">Hỗ trợ tệp đuôi .th hợp lệ</div>
           </div>
 
           <!-- Selected File Preview -->
@@ -253,22 +252,37 @@
             </div>
           </div>
 
-          <!-- Success Details -->
+          <!-- Success Card with In-Browser Preview & Manual Download -->
           <div id="dec-result-card" class="result-card result-card-decrypt">
             <div class="result-header result-header-decrypt">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="20 6 9 17 4 12"></polyline>
               </svg>
-              Giải mã hoàn tất! Tệp tin đã được khôi phục nguyên vẹn 100%.
+              <span>Giải mã thành công</span>
             </div>
+
+            <!-- In-Browser Image Preview Container -->
+            <div id="dec-preview-container" class="dec-preview-container">
+              <div class="dec-preview-header">
+                <span class="dec-preview-badge">Xem trước ảnh trực tiếp</span>
+                <span id="dec-preview-meta" class="dec-preview-meta"></span>
+              </div>
+              <div class="dec-preview-image-box">
+                <img id="dec-preview-image" class="dec-preview-image" alt="Xem trước ảnh giải mã" />
+              </div>
+            </div>
+
+            <!-- Result Metadata Details -->
             <div id="dec-result-details" class="result-details"></div>
-            <button id="dec-btn-download" class="btn-download-again">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+
+            <!-- Manual Download Button -->
+            <button id="dec-btn-download" class="btn-download-primary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                 <polyline points="7 10 12 15 17 10"></polyline>
                 <line x1="12" y1="15" x2="12" y2="3"></line>
               </svg>
-              Tải lại tệp đã khôi phục
+              Tải file về máy
             </button>
           </div>
 
@@ -284,55 +298,28 @@
         </section>
       </main>
 
-      <!-- Specifications Section -->
+      <!-- Security Notice Card (Clean & Compact) -->
       <section class="glass-panel spec-section" aria-labelledby="specs-heading">
         <h3 id="specs-heading" class="spec-title">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-            <polyline points="2 17 12 22 22 17"></polyline>
-            <polyline points="2 12 12 17 22 12"></polyline>
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
           </svg>
-          Đặc Tả Cấu Trúc Đóng Gói Định Dạng .th
+          Cam Kết Bảo Mật An Toàn
         </h3>
         <p class="spec-subtitle">
-          Header cố định 49 bytes chứa thông tin giải mã độc quyền, theo sau là khối dữ liệu mã hóa AES-256-GCM
+          Toàn bộ quy trình xử lý diễn ra trực tiếp trong trình duyệt của bạn (Client-Side), không gửi dữ liệu hay mật khẩu lên bất kỳ máy chủ nào.
         </p>
 
-        <!-- Binary Structure Visualizer -->
-        <div class="binary-layout">
-          <div class="binary-block block-magic">
-            <div class="block-name">MAGIC HEADER</div>
-            <div class="block-bytes">11 Bytes ("TH_CRYPT_V1")</div>
-          </div>
-          <div class="binary-block block-ext">
-            <div class="block-name">ORIGINAL_EXT</div>
-            <div class="block-bytes">10 Bytes (UTF-8, Null-padded)</div>
-          </div>
-          <div class="binary-block block-salt">
-            <div class="block-name">SALT</div>
-            <div class="block-bytes">16 Bytes (CSPRNG)</div>
-          </div>
-          <div class="binary-block block-iv">
-            <div class="block-name">IV (GCM)</div>
-            <div class="block-bytes">12 Bytes (Unique Nonce)</div>
-          </div>
-          <div class="binary-block block-payload">
-            <div class="block-name">ENCRYPTED PAYLOAD</div>
-            <div class="block-bytes">N Bytes (Ciphertext + 16B Auth Tag)</div>
-          </div>
-        </div>
-
-        <!-- Security Features Breakdown -->
         <div class="spec-features">
           <div class="feature-item">
             <div class="feature-title">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                <polyline points="20 6 9 17 4 12"></polyline>
               </svg>
-              PBKDF2 SHA-256 (100,000 It.)
+              Xử Lý Cục Bộ 100%
             </div>
             <div class="feature-desc">
-              Khóa AES 256-bit được phái sinh từ mật khẩu cùng Salt ngẫu nhiên 16 bytes qua 100,000 vòng băm để vô hiệu hóa tấn công từ điển và GPU rainbow tables.
+              File không bao giờ rời khỏi thiết bị của bạn. Không lưu trữ, không thu thập lịch sử hay thông tin cá nhân.
             </div>
           </div>
           <div class="feature-item">
@@ -341,10 +328,10 @@
                 <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
                 <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
               </svg>
-              AES-256-GCM Xác Thực
+              Mã Hóa Tiêu Chuẩn Cao Cấp
             </div>
             <div class="feature-desc">
-              Mã hóa đối xứng chuẩn quân sự kèm thẻ kiểm tra toàn vẹn 128-bit. Mọi sự thay đổi dù chỉ 1 bit nhị phân đều bị từ chối giải mã ngay lập tức.
+              Bảo vệ toàn vẹn dữ liệu, chống can thiệp và chống dò mật khẩu hiệu quả.
             </div>
           </div>
           <div class="feature-item">
@@ -353,10 +340,10 @@
                 <circle cx="12" cy="12" r="10"></circle>
                 <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
               </svg>
-              Tuyệt Đối Chống Lộ Mật Khẩu
+              Không Lưu Mật Khẩu
             </div>
             <div class="feature-desc">
-              Mật khẩu KHÔNG được lưu hay nhúng dưới bất kỳ dạng nào trong file .th. Mở file bằng trình soạn thảo hay hex editor chỉ thấy byte nhị phân ngẫu nhiên.
+              File .th hoàn toàn không chứa mật khẩu. Nếu quên mật khẩu, dữ liệu sẽ không thể khôi phục.
             </div>
           </div>
         </div>
@@ -364,7 +351,7 @@
 
       <!-- Footer -->
       <footer class="footer">
-        TH Crypt &bull; Web Crypto API Standard &bull; AES-256-GCM &bull; PBKDF2
+        TH Crypt &bull; Bảo mật tệp tin cục bộ &bull; Định dạng độc quyền .th
       </footer>
     </div>
 
