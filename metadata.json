@@ -1,0 +1,6 @@
+{
+  "name": "TH Crypt - Mã Hóa & Giải Mã File .th",
+  "description": "Ứng dụng web client-side bảo mật cao cấp mã hóa và giải mã file bằng AES-256-GCM và PBKDF2 định dạng độc quyền .th",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
