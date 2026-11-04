@@ -12,25 +12,26 @@
  *   - Zero Password Leakage: Passwords exist solely in volatile memory during derivation.
  */
 
-import { argon2id } from 'hash-wasm';
+import { argon2id, blake3 } from 'hash-wasm';
 
-// Binary Format Specification (V2 with Exact Original Filename Metadata)
+// Binary Format Specification (V3 Closed-Package with Encrypted Metadata & Cryptographic Integrity)
+const MAGIC_HEADER_STRING_V3 = "TH_CRYPT_V3";
 const MAGIC_HEADER_STRING_V2 = "TH_CRYPT_V2";
 const MAGIC_HEADER_STRING_V1 = "TH_CRYPT_V1";
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
-const MAGIC_HEADER_V2 = enc.encode(MAGIC_HEADER_STRING_V2); // 11 bytes: [84, 72, 95, 67, 82, 89, 80, 84, 95, 86, 50]
+const MAGIC_HEADER_V3 = enc.encode(MAGIC_HEADER_STRING_V3); // 11 bytes: "TH_CRYPT_V3"
 const MAGIC_HEADER_SIZE = 11; // 11 bytes
 const PARAMS_SIZE = 8;        // 8 bytes (4B memoryCost in KB, 2B iterations, 2B parallelism)
-const SALT_SIZE = 16;         // 16 bytes CSPRNG
+const SALT_SIZE = 32;         // 32 bytes (256-bit CSPRNG high-entropy salt for V3)
 const IV_SIZE = 12;           // 12 bytes CSPRNG
-// Exact original filename metadata: 2-byte Big-Endian length + UTF-8 filename bytes
+// Total V3 cleartext outer header: 11 + 8 + 32 + 12 = 63 bytes. Zero metadata leaks outside.
 
-// High-security Argon2id parameters (Browser memory-hard benchmarked)
-// 64 MB RAM per attempt (65536 KB), 3 iterations, 1 parallelism
+// Ultra-security Argon2id parameters (Browser memory-hard benchmarked)
+// 64 MB RAM per attempt (65536 KB), 4 iterations, 1 parallelism
 const DEFAULT_ARGON2_MEMORY = 65536; // 64 MB memory cost (defeats GPU/ASIC/AI farms)
-const DEFAULT_ARGON2_ITERATIONS = 3; // Time cost
+const DEFAULT_ARGON2_ITERATIONS = 4; // 4 high-assurance iterations
 const DEFAULT_ARGON2_PARALLELISM = 1;
 
 // State management
@@ -183,7 +184,7 @@ async function deriveLegacyPBKDF2Key(password, salt) {
   );
 }
 
-// Encrypt File into .th V2 binary structure with Argon2id + AES-256-GCM and Original Filename Metadata
+// Encrypt File into .th V3 closed-package binary structure (Zero Metadata Leakage)
 async function processEncryption(file, password, updateStatus) {
   if (!file || !(file instanceof Blob)) {
     throw new Error('Không tìm thấy tệp tin hoặc tệp đã bị hủy. Vui lòng chọn lại tệp!');
@@ -194,9 +195,9 @@ async function processEncryption(file, password, updateStatus) {
 
   const fileBuffer = await readFileAsArrayBuffer(file);
 
-  updateStatus('Đang tạo mã bảo mật...', 50);
-  const salt = window.crypto.getRandomValues(new Uint8Array(SALT_SIZE));
-  const iv = window.crypto.getRandomValues(new Uint8Array(IV_SIZE));
+  updateStatus('Đang tạo mã bảo mật cấp quân sự (256-bit CSPRNG)...', 50);
+  const salt = window.crypto.getRandomValues(new Uint8Array(SALT_SIZE)); // 32 bytes
+  const iv = window.crypto.getRandomValues(new Uint8Array(IV_SIZE));     // 12 bytes
 
   const key = await deriveArgon2idKey(
     password,
@@ -206,22 +207,49 @@ async function processEncryption(file, password, updateStatus) {
     DEFAULT_ARGON2_PARALLELISM
   );
 
-  updateStatus('Đang tiến hành mã hóa dữ liệu...', 75);
+  updateStatus('Đang tính toán mã băm BLAKE3 và mã hóa AES-256-GCM...', 75);
+
+  // Calculate high-speed cryptographic BLAKE3 checksum (32 bytes)
+  const fileBytes = new Uint8Array(fileBuffer);
+  const hashHex = await blake3(fileBytes);
+  const hashBytes = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
+    hashBytes[i] = parseInt(hashHex.substr(i * 2, 2), 16);
+  }
+
+  // Plaintext structure:
+  // [FILENAME_LEN (2B uint16)][FILENAME_BYTES (UTF-8)][BLAKE3_HASH (32B)][ORIGINAL_FILE_BYTES]
+  const originalFilenameString = file.name || 'file';
+  const filenameBytes = enc.encode(originalFilenameString);
+  const filenameLength = filenameBytes.length;
+
+  const plaintextTotalLength = 2 + filenameLength + 32 + fileBuffer.byteLength;
+  const plaintextBuffer = new Uint8Array(plaintextTotalLength);
+
+  // 1. Filename length (2 bytes Big-Endian)
+  const fnLenView = new DataView(plaintextBuffer.buffer, 0, 2);
+  fnLenView.setUint16(0, filenameLength, false);
+
+  // 2. Filename bytes
+  plaintextBuffer.set(filenameBytes, 2);
+
+  // 3. BLAKE3 Integrity Hash (32 bytes)
+  plaintextBuffer.set(hashBytes, 2 + filenameLength);
+
+  // 4. Raw file bytes
+  plaintextBuffer.set(fileBytes, 2 + filenameLength + 32);
+
+  // Encrypt the entire package: Filename + BLAKE3 Hash + File Content + AES-GCM 128-bit Auth Tag
   const encryptedPayload = await window.crypto.subtle.encrypt(
     {
       name: 'AES-GCM',
       iv: iv
     },
     key,
-    fileBuffer
+    plaintextBuffer
   );
 
-  updateStatus('Đang đóng gói tệp .th...', 90);
-
-  // Encode exact original filename metadata (UTF-8, with 2-byte prefix length)
-  const originalFilenameString = file.name || 'file';
-  const filenameBytes = enc.encode(originalFilenameString);
-  const filenameLength = filenameBytes.length; // uint16 (max 65535 bytes)
+  updateStatus('Đang đóng gói tệp .th (Chuẩn V3 Ultra)...', 90);
 
   // Encode Argon2 parameters (8 bytes: 4B memoryCost, 2B iterations, 2B parallelism)
   const paramsBuffer = new ArrayBuffer(PARAMS_SIZE);
@@ -230,22 +258,22 @@ async function processEncryption(file, password, updateStatus) {
   paramsView.setUint16(4, DEFAULT_ARGON2_ITERATIONS, false);  // Big-Endian uint16
   paramsView.setUint16(6, DEFAULT_ARGON2_PARALLELISM, false); // Big-Endian uint16
 
-  // Assemble full binary package:
-  // [MAGIC_HEADER_V2 (11B)][ARGON2_PARAMS (8B)][SALT (16B)][IV (12B)][FILENAME_LEN (2B)][FILENAME_BYTES (N_fn B)][ENCRYPTED_PAYLOAD]
-  const headerSize = MAGIC_HEADER_SIZE + PARAMS_SIZE + SALT_SIZE + IV_SIZE + 2 + filenameLength;
-  const totalLength = headerSize + encryptedPayload.byteLength;
+  // Outer closed format:
+  // [MAGIC_HEADER_V3 (11B)][ARGON2_PARAMS (8B)][SALT (32B)][IV (12B)][ENCRYPTED_PAYLOAD (Ciphertext + 16B Auth Tag)]
+  const outerHeaderSize = MAGIC_HEADER_SIZE + PARAMS_SIZE + SALT_SIZE + IV_SIZE; // 63 bytes
+  const totalLength = outerHeaderSize + encryptedPayload.byteLength;
   const thPackage = new Uint8Array(totalLength);
 
   let offset = 0;
-  // 1. Magic Header V2 (11 bytes: "TH_CRYPT_V2")
-  thPackage.set(MAGIC_HEADER_V2, offset);
+  // 1. Magic Header V3 (11 bytes: "TH_CRYPT_V3")
+  thPackage.set(MAGIC_HEADER_V3, offset);
   offset += MAGIC_HEADER_SIZE;
 
   // 2. Argon2 Parameters (8 bytes)
   thPackage.set(new Uint8Array(paramsBuffer), offset);
   offset += PARAMS_SIZE;
 
-  // 3. Salt (16 bytes)
+  // 3. Salt (32 bytes)
   thPackage.set(salt, offset);
   offset += SALT_SIZE;
 
@@ -253,17 +281,7 @@ async function processEncryption(file, password, updateStatus) {
   thPackage.set(iv, offset);
   offset += IV_SIZE;
 
-  // 5. Original Filename Length (2 bytes, Big-Endian uint16)
-  const fnLenBuffer = new ArrayBuffer(2);
-  new DataView(fnLenBuffer).setUint16(0, filenameLength, false);
-  thPackage.set(new Uint8Array(fnLenBuffer), offset);
-  offset += 2;
-
-  // 6. Original Filename Bytes (UTF-8)
-  thPackage.set(filenameBytes, offset);
-  offset += filenameLength;
-
-  // 7. Encrypted Payload (Ciphertext + 16-byte GCM Authentication Tag)
+  // 5. Encrypted Payload (Ciphertext + 16-byte GCM Authentication Tag)
   thPackage.set(new Uint8Array(encryptedPayload), offset);
 
   const duration = Math.round(performance.now() - startTime);
@@ -279,12 +297,12 @@ async function processEncryption(file, password, updateStatus) {
     originalSize: file.size,
     encryptedSize: totalLength,
     duration,
-    algorithm: 'Argon2id + AES-256-GCM',
+    algorithm: 'Argon2id + AES-256-GCM (V3 Closed-Payload)',
     memoryCost: `${DEFAULT_ARGON2_MEMORY / 1024} MB`
   };
 }
 
-// Decrypt .th binary structure back to original file with Exact Filename Restoration
+// Decrypt .th binary structure back to original file with Exact Filename Restoration (V3, V2, V1)
 async function processDecryption(file, password, updateStatus) {
   if (!file || !(file instanceof Blob)) {
     throw new Error('Không tìm thấy tệp tin hoặc tệp đã bị hủy. Vui lòng chọn lại tệp!');
@@ -296,7 +314,7 @@ async function processDecryption(file, password, updateStatus) {
   const fileBuffer = await readFileAsArrayBuffer(file);
   const fileBytes = new Uint8Array(fileBuffer);
 
-  if (fileBytes.byteLength < 46 + 16) {
+  if (fileBytes.byteLength < 47 + 16) {
     throw new Error('Tệp không đúng định dạng .th hoặc dung lượng quá nhỏ để giải mã.');
   }
 
@@ -306,10 +324,11 @@ async function processDecryption(file, password, updateStatus) {
   const headerBytes = fileBytes.subarray(0, MAGIC_HEADER_SIZE);
   const headerString = dec.decode(headerBytes);
 
+  let isV3 = (headerString === MAGIC_HEADER_STRING_V3);
   let isV2 = (headerString === MAGIC_HEADER_STRING_V2);
   let isV1 = (headerString === MAGIC_HEADER_STRING_V1);
 
-  if (!isV2 && !isV1) {
+  if (!isV3 && !isV2 && !isV1) {
     throw new Error('Tệp không phải định dạng .th hợp lệ (Sai Magic Header nhận diện).');
   }
 
@@ -320,16 +339,10 @@ async function processDecryption(file, password, updateStatus) {
   let key;
   let kdfName = '';
 
-  if (isV2) {
-    // Structure V2: [MAGIC (11B)][PARAMS (8B)][SALT (16B)][IV (12B)][FN_LEN (2B)][FN_BYTES (N_fn B)][PAYLOAD]
-    // Base header before variable filename = 11 + 8 + 16 + 12 + 2 = 49 bytes
-    if (fileBytes.byteLength < 49 + 16) {
-      throw new Error('Tệp .th V2 bị thiếu dữ liệu hoặc bị cắt xén.');
-    }
-
+  if (isV3) {
+    // Structure V3 Ultra: [MAGIC_V3 (11B)][PARAMS (8B)][SALT (32B)][IV (12B)][ENCRYPTED_PAYLOAD]
     let offset = MAGIC_HEADER_SIZE; // 11
 
-    // 1. Extract Argon2 Parameters (8 bytes)
     const paramsBytes = fileBytes.subarray(offset, offset + PARAMS_SIZE);
     const paramsView = new DataView(paramsBytes.buffer, paramsBytes.byteOffset, paramsBytes.byteLength);
     const memoryCost = paramsView.getUint32(0, false);
@@ -337,37 +350,50 @@ async function processDecryption(file, password, updateStatus) {
     const parallelism = paramsView.getUint16(6, false);
     offset += PARAMS_SIZE; // 19
 
-    // 2. Extract Salt (16 bytes)
-    salt = fileBytes.subarray(offset, offset + SALT_SIZE);
-    offset += SALT_SIZE; // 35
+    // 32-byte high-entropy salt
+    salt = fileBytes.subarray(offset, offset + 32);
+    offset += 32; // 51
 
-    // 3. Extract IV (12 bytes)
+    iv = fileBytes.subarray(offset, offset + IV_SIZE);
+    offset += IV_SIZE; // 63
+
+    encryptedPayload = fileBytes.subarray(offset);
+
+    updateStatus('Đang mở khóa bảo vệ bằng Argon2id WASM (64MB RAM)...', 60);
+    kdfName = 'Argon2id + BLAKE3 (Chuẩn V3 Ultra)';
+    key = await deriveArgon2idKey(password, salt, memoryCost, iterations, parallelism);
+  } else if (isV2) {
+    // Structure V2: [MAGIC (11B)][PARAMS (8B)][SALT (16B)][IV (12B)][FN_LEN (2B)][FN_BYTES][PAYLOAD]
+    let offset = MAGIC_HEADER_SIZE; // 11
+
+    const paramsBytes = fileBytes.subarray(offset, offset + PARAMS_SIZE);
+    const paramsView = new DataView(paramsBytes.buffer, paramsBytes.byteOffset, paramsBytes.byteLength);
+    const memoryCost = paramsView.getUint32(0, false);
+    const iterations = paramsView.getUint16(4, false);
+    const parallelism = paramsView.getUint16(6, false);
+    offset += PARAMS_SIZE; // 19
+
+    salt = fileBytes.subarray(offset, offset + 16);
+    offset += 16; // 35
+
     iv = fileBytes.subarray(offset, offset + IV_SIZE);
     offset += IV_SIZE; // 47
 
-    // 4. Extract Original Filename Length (2 bytes Big-Endian)
     const fnLenView = new DataView(fileBytes.buffer, fileBytes.byteOffset + offset, 2);
     const filenameLen = fnLenView.getUint16(0, false);
     offset += 2; // 49
 
-    if (fileBytes.byteLength < offset + filenameLen + 16) {
-      throw new Error('Tệp .th V2 bị lỗi cấu trúc metadata tên file.');
-    }
-
-    // 5. Extract Exact Original Filename (UTF-8 bytes)
     const fnBytes = fileBytes.subarray(offset, offset + filenameLen);
     restoredFilename = dec.decode(fnBytes);
     offset += filenameLen;
 
-    // 6. Extract Ciphertext + Tag
     encryptedPayload = fileBytes.subarray(offset);
 
-    updateStatus('Đang mở khóa bảo vệ...', 60);
-    kdfName = 'Argon2id (Tiêu chuẩn cao cấp)';
+    updateStatus('Đang mở khóa bảo vệ bằng Argon2id WASM...', 60);
+    kdfName = 'Argon2id (Tương thích V2)';
     key = await deriveArgon2idKey(password, salt, memoryCost, iterations, parallelism);
   } else {
-    // V1 Format backward compatibility:
-    // [MAGIC (11B)][EXT (10B)][SALT (16B)][IV (12B)][PAYLOAD]
+    // V1 Format: [MAGIC (11B)][EXT (10B)][SALT (16B)][IV (12B)][PAYLOAD]
     const extBytes = fileBytes.subarray(11, 21);
     let extString = '';
     for (let i = 0; i < extBytes.length; i++) {
@@ -396,7 +422,7 @@ async function processDecryption(file, password, updateStatus) {
     key = await deriveLegacyPBKDF2Key(password, salt);
   }
 
-  updateStatus('Đang giải mã nội dung...', 80);
+  updateStatus('Đang giải mã và kiểm tra tính toàn vẹn AES-GCM...', 80);
 
   let decryptedBuffer;
   try {
@@ -409,11 +435,49 @@ async function processDecryption(file, password, updateStatus) {
       encryptedPayload
     );
   } catch (err) {
-    // Tag mismatch or incorrect key
+    // Mathematical barrier: GCM authentication tag mismatch or invalid key
     throw new Error('Sai mật khẩu hoặc tệp tin đã bị can thiệp/hư hại dù chỉ 1 bit! Không thể giải mã.');
   }
 
-  updateStatus('Khôi phục tệp tin nguyên bản...', 95);
+  updateStatus('Khôi phục và đối soát mã băm toàn vẹn...', 95);
+
+  let rawFileContentBuffer;
+
+  if (isV3) {
+    // In V3 Ultra, metadata is decrypted from within the plaintext:
+    // [FILENAME_LEN (2B uint16)][FILENAME_BYTES][BLAKE3_HASH (32B)][RAW_FILE_DATA]
+    const decryptedBytes = new Uint8Array(decryptedBuffer);
+    if (decryptedBytes.byteLength < 2 + 32) {
+      throw new Error('Dữ liệu giải mã không hợp lệ hoặc bị cắt xén.');
+    }
+
+    const fnLen = new DataView(decryptedBytes.buffer, decryptedBytes.byteOffset, 2).getUint16(0, false);
+    if (decryptedBytes.byteLength < 2 + fnLen + 32) {
+      throw new Error('Cấu trúc metadata tên file trong payload bị lỗi.');
+    }
+
+    const fnBytes = decryptedBytes.subarray(2, 2 + fnLen);
+    restoredFilename = dec.decode(fnBytes);
+
+    // Extract expected BLAKE3 hash
+    const expectedHashBytes = decryptedBytes.subarray(2 + fnLen, 2 + fnLen + 32);
+    let expectedHashHex = '';
+    for (let i = 0; i < 32; i++) {
+      expectedHashHex += expectedHashBytes[i].toString(16).padStart(2, '0');
+    }
+
+    // Extract exact raw file content
+    const rawBytes = decryptedBytes.subarray(2 + fnLen + 32);
+    rawFileContentBuffer = rawBytes.buffer.slice(rawBytes.byteOffset, rawBytes.byteOffset + rawBytes.byteLength);
+
+    // Cryptographic double verification with BLAKE3
+    const calculatedHashHex = await blake3(rawBytes);
+    if (calculatedHashHex !== expectedHashHex) {
+      throw new Error('Cảnh báo bảo mật: Mã băm toàn vẹn BLAKE3 không khớp! Tệp có thể đã bị can thiệp.');
+    }
+  } else {
+    rawFileContentBuffer = decryptedBuffer;
+  }
 
   // Exact filename guarantee
   if (!restoredFilename || typeof restoredFilename !== 'string' || restoredFilename.trim().length === 0) {
@@ -445,13 +509,13 @@ async function processDecryption(file, password, updateStatus) {
     zip: 'application/zip'
   };
   const mimeType = mimeTypes[cleanExt] || 'application/octet-stream';
-  const blob = new Blob([decryptedBuffer], { type: mimeType });
+  const blob = new Blob([rawFileContentBuffer], { type: mimeType });
 
   return {
     blob,
     filename: restoredFilename,
     originalSize: file.size,
-    decryptedSize: decryptedBuffer.byteLength,
+    decryptedSize: rawFileContentBuffer.byteLength,
     extension: cleanExt,
     duration,
     kdf: kdfName
