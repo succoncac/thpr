@@ -14,18 +14,18 @@
 
 import { argon2id } from 'hash-wasm';
 
-// Binary Format Specification (V2)
+// Binary Format Specification (V2 with Exact Original Filename Metadata)
 const MAGIC_HEADER_STRING_V2 = "TH_CRYPT_V2";
 const MAGIC_HEADER_STRING_V1 = "TH_CRYPT_V1";
 const enc = new TextEncoder();
+const dec = new TextDecoder();
 
 const MAGIC_HEADER_V2 = enc.encode(MAGIC_HEADER_STRING_V2); // 11 bytes: [84, 72, 95, 67, 82, 89, 80, 84, 95, 86, 50]
 const MAGIC_HEADER_SIZE = 11; // 11 bytes
-const EXTENSION_SIZE = 10;    // 10 bytes (null-padded UTF-8)
 const PARAMS_SIZE = 8;        // 8 bytes (4B memoryCost in KB, 2B iterations, 2B parallelism)
 const SALT_SIZE = 16;         // 16 bytes CSPRNG
 const IV_SIZE = 12;           // 12 bytes CSPRNG
-const HEADER_SIZE_V2 = MAGIC_HEADER_SIZE + EXTENSION_SIZE + PARAMS_SIZE + SALT_SIZE + IV_SIZE; // 57 bytes
+// Exact original filename metadata: 2-byte Big-Endian length + UTF-8 filename bytes
 
 // High-security Argon2id parameters (Browser memory-hard benchmarked)
 // 64 MB RAM per attempt (65536 KB), 3 iterations, 1 parallelism
@@ -183,7 +183,7 @@ async function deriveLegacyPBKDF2Key(password, salt) {
   );
 }
 
-// Encrypt File into .th V2 binary structure with Argon2id + AES-256-GCM
+// Encrypt File into .th V2 binary structure with Argon2id + AES-256-GCM and Original Filename Metadata
 async function processEncryption(file, password, updateStatus) {
   if (!file || !(file instanceof Blob)) {
     throw new Error('Không tìm thấy tệp tin hoặc tệp đã bị hủy. Vui lòng chọn lại tệp!');
@@ -218,11 +218,10 @@ async function processEncryption(file, password, updateStatus) {
 
   updateStatus('Đang đóng gói tệp .th...', 90);
 
-  // Encode original extension (10 bytes null-padded)
-  const ext = getFileExtension(file.name);
-  const extBytes = enc.encode(ext);
-  const fixedExt = new Uint8Array(EXTENSION_SIZE);
-  fixedExt.set(extBytes.subarray(0, EXTENSION_SIZE));
+  // Encode exact original filename metadata (UTF-8, with 2-byte prefix length)
+  const originalFilenameString = file.name || 'file';
+  const filenameBytes = enc.encode(originalFilenameString);
+  const filenameLength = filenameBytes.length; // uint16 (max 65535 bytes)
 
   // Encode Argon2 parameters (8 bytes: 4B memoryCost, 2B iterations, 2B parallelism)
   const paramsBuffer = new ArrayBuffer(PARAMS_SIZE);
@@ -232,8 +231,9 @@ async function processEncryption(file, password, updateStatus) {
   paramsView.setUint16(6, DEFAULT_ARGON2_PARALLELISM, false); // Big-Endian uint16
 
   // Assemble full binary package:
-  // [MAGIC_HEADER_V2 (11B)][ORIGINAL_EXT (10B)][ARGON2_PARAMS (8B)][SALT (16B)][IV (12B)][ENCRYPTED_PAYLOAD]
-  const totalLength = HEADER_SIZE_V2 + encryptedPayload.byteLength;
+  // [MAGIC_HEADER_V2 (11B)][ARGON2_PARAMS (8B)][SALT (16B)][IV (12B)][FILENAME_LEN (2B)][FILENAME_BYTES (N_fn B)][ENCRYPTED_PAYLOAD]
+  const headerSize = MAGIC_HEADER_SIZE + PARAMS_SIZE + SALT_SIZE + IV_SIZE + 2 + filenameLength;
+  const totalLength = headerSize + encryptedPayload.byteLength;
   const thPackage = new Uint8Array(totalLength);
 
   let offset = 0;
@@ -241,34 +241,41 @@ async function processEncryption(file, password, updateStatus) {
   thPackage.set(MAGIC_HEADER_V2, offset);
   offset += MAGIC_HEADER_SIZE;
 
-  // 2. Original Extension (10 bytes)
-  thPackage.set(fixedExt, offset);
-  offset += EXTENSION_SIZE;
-
-  // 3. Argon2 Parameters (8 bytes)
+  // 2. Argon2 Parameters (8 bytes)
   thPackage.set(new Uint8Array(paramsBuffer), offset);
   offset += PARAMS_SIZE;
 
-  // 4. Salt (16 bytes)
+  // 3. Salt (16 bytes)
   thPackage.set(salt, offset);
   offset += SALT_SIZE;
 
-  // 5. IV / Nonce (12 bytes)
+  // 4. IV / Nonce (12 bytes)
   thPackage.set(iv, offset);
   offset += IV_SIZE;
 
-  // 6. Encrypted Payload (Ciphertext + 16-byte GCM Authentication Tag)
+  // 5. Original Filename Length (2 bytes, Big-Endian uint16)
+  const fnLenBuffer = new ArrayBuffer(2);
+  new DataView(fnLenBuffer).setUint16(0, filenameLength, false);
+  thPackage.set(new Uint8Array(fnLenBuffer), offset);
+  offset += 2;
+
+  // 6. Original Filename Bytes (UTF-8)
+  thPackage.set(filenameBytes, offset);
+  offset += filenameLength;
+
+  // 7. Encrypted Payload (Ciphertext + 16-byte GCM Authentication Tag)
   thPackage.set(new Uint8Array(encryptedPayload), offset);
 
   const duration = Math.round(performance.now() - startTime);
-  updateStatus('Mã hóa thành công bằng Argon2id + AES-256-GCM!', 100);
+  updateStatus('Mã hóa thành công!', 100);
 
-  const outputFilename = `${file.name}.th`;
+  const outputFilename = `${originalFilenameString}.th`;
   const blob = new Blob([thPackage], { type: 'application/octet-stream' });
 
   return {
     blob,
     filename: outputFilename,
+    originalName: originalFilenameString,
     originalSize: file.size,
     encryptedSize: totalLength,
     duration,
@@ -277,7 +284,7 @@ async function processEncryption(file, password, updateStatus) {
   };
 }
 
-// Decrypt .th binary structure back to original file (V2 Argon2id & V1 Backward Compatible)
+// Decrypt .th binary structure back to original file with Exact Filename Restoration
 async function processDecryption(file, password, updateStatus) {
   if (!file || !(file instanceof Blob)) {
     throw new Error('Không tìm thấy tệp tin hoặc tệp đã bị hủy. Vui lòng chọn lại tệp!');
@@ -293,11 +300,11 @@ async function processDecryption(file, password, updateStatus) {
     throw new Error('Tệp không đúng định dạng .th hoặc dung lượng quá nhỏ để giải mã.');
   }
 
-  updateStatus('Đang xác thực Magic Header...', 30);
+  updateStatus('Đang xác thực cấu trúc tệp...', 30);
 
   // Check header string
   const headerBytes = fileBytes.subarray(0, MAGIC_HEADER_SIZE);
-  const headerString = new TextDecoder().decode(headerBytes);
+  const headerString = dec.decode(headerBytes);
 
   let isV2 = (headerString === MAGIC_HEADER_STRING_V2);
   let isV1 = (headerString === MAGIC_HEADER_STRING_V1);
@@ -306,7 +313,7 @@ async function processDecryption(file, password, updateStatus) {
     throw new Error('Tệp không phải định dạng .th hợp lệ (Sai Magic Header nhận diện).');
   }
 
-  let extString = '';
+  let restoredFilename = '';
   let salt;
   let iv;
   let encryptedPayload;
@@ -314,53 +321,78 @@ async function processDecryption(file, password, updateStatus) {
   let kdfName = '';
 
   if (isV2) {
-    // V2 Format with Argon2id parameters
-    if (fileBytes.byteLength < HEADER_SIZE_V2 + 16) {
+    // Structure V2: [MAGIC (11B)][PARAMS (8B)][SALT (16B)][IV (12B)][FN_LEN (2B)][FN_BYTES (N_fn B)][PAYLOAD]
+    // Base header before variable filename = 11 + 8 + 16 + 12 + 2 = 49 bytes
+    if (fileBytes.byteLength < 49 + 16) {
       throw new Error('Tệp .th V2 bị thiếu dữ liệu hoặc bị cắt xén.');
     }
 
-    // 1. Extract Extension (10 bytes)
-    const extBytes = fileBytes.subarray(11, 21);
-    for (let i = 0; i < extBytes.length; i++) {
-      if (extBytes[i] === 0) break;
-      extString += String.fromCharCode(extBytes[i]);
-    }
-    extString = extString.trim();
+    let offset = MAGIC_HEADER_SIZE; // 11
 
-    // 2. Extract Argon2 Parameters (8 bytes)
-    const paramsBytes = fileBytes.subarray(21, 29);
+    // 1. Extract Argon2 Parameters (8 bytes)
+    const paramsBytes = fileBytes.subarray(offset, offset + PARAMS_SIZE);
     const paramsView = new DataView(paramsBytes.buffer, paramsBytes.byteOffset, paramsBytes.byteLength);
     const memoryCost = paramsView.getUint32(0, false);
     const iterations = paramsView.getUint16(4, false);
     const parallelism = paramsView.getUint16(6, false);
+    offset += PARAMS_SIZE; // 19
 
-    // 3. Extract Salt (16 bytes)
-    salt = fileBytes.subarray(29, 45);
+    // 2. Extract Salt (16 bytes)
+    salt = fileBytes.subarray(offset, offset + SALT_SIZE);
+    offset += SALT_SIZE; // 35
 
-    // 4. Extract IV (12 bytes)
-    iv = fileBytes.subarray(45, 57);
+    // 3. Extract IV (12 bytes)
+    iv = fileBytes.subarray(offset, offset + IV_SIZE);
+    offset += IV_SIZE; // 47
 
-    // 5. Extract Ciphertext + Tag
-    encryptedPayload = fileBytes.subarray(57);
+    // 4. Extract Original Filename Length (2 bytes Big-Endian)
+    const fnLenView = new DataView(fileBytes.buffer, fileBytes.byteOffset + offset, 2);
+    const filenameLen = fnLenView.getUint16(0, false);
+    offset += 2; // 49
+
+    if (fileBytes.byteLength < offset + filenameLen + 16) {
+      throw new Error('Tệp .th V2 bị lỗi cấu trúc metadata tên file.');
+    }
+
+    // 5. Extract Exact Original Filename (UTF-8 bytes)
+    const fnBytes = fileBytes.subarray(offset, offset + filenameLen);
+    restoredFilename = dec.decode(fnBytes);
+    offset += filenameLen;
+
+    // 6. Extract Ciphertext + Tag
+    encryptedPayload = fileBytes.subarray(offset);
 
     updateStatus('Đang mở khóa bảo vệ...', 60);
-    kdfName = 'Tiêu chuẩn cao cấp';
+    kdfName = 'Argon2id (Tiêu chuẩn cao cấp)';
     key = await deriveArgon2idKey(password, salt, memoryCost, iterations, parallelism);
   } else {
-    // V1 Format with PBKDF2 fallback
+    // V1 Format backward compatibility:
+    // [MAGIC (11B)][EXT (10B)][SALT (16B)][IV (12B)][PAYLOAD]
     const extBytes = fileBytes.subarray(11, 21);
+    let extString = '';
     for (let i = 0; i < extBytes.length; i++) {
       if (extBytes[i] === 0) break;
       extString += String.fromCharCode(extBytes[i]);
     }
-    extString = extString.trim();
+    extString = extString.trim().toLowerCase().replace(/^\./, '');
 
     salt = fileBytes.subarray(21, 37);
     iv = fileBytes.subarray(37, 49);
     encryptedPayload = fileBytes.subarray(49);
 
+    let baseName = file.name;
+    if (baseName.toLowerCase().endsWith('.th')) {
+      baseName = baseName.slice(0, -3);
+    } else {
+      baseName = getBaseName(baseName);
+    }
+    if (extString && !baseName.toLowerCase().endsWith(`.${extString}`)) {
+      baseName += `.${extString}`;
+    }
+    restoredFilename = baseName;
+
     updateStatus('Đang mở khóa bảo vệ...', 60);
-    kdfName = 'Tương thích V1';
+    kdfName = 'PBKDF2 (Tương thích V1)';
     key = await deriveLegacyPBKDF2Key(password, salt);
   }
 
@@ -383,21 +415,15 @@ async function processDecryption(file, password, updateStatus) {
 
   updateStatus('Khôi phục tệp tin nguyên bản...', 95);
 
-  // Reconstruct file name
-  let originalFilename = file.name;
-  if (originalFilename.toLowerCase().endsWith('.th')) {
-    originalFilename = originalFilename.slice(0, -3);
-  } else {
-    originalFilename = getBaseName(originalFilename);
-  }
-
-  const cleanExt = (extString || '').toLowerCase().replace(/^\./, '');
-  if (cleanExt && !originalFilename.toLowerCase().endsWith(`.${cleanExt}`)) {
-    originalFilename += `.${cleanExt}`;
+  // Exact filename guarantee
+  if (!restoredFilename || typeof restoredFilename !== 'string' || restoredFilename.trim().length === 0) {
+    restoredFilename = 'restored_file';
   }
 
   const duration = Math.round(performance.now() - startTime);
   updateStatus('Giải mã thành công!', 100);
+
+  const cleanExt = getFileExtension(restoredFilename);
 
   // Derive MIME type for accurate preview and file handling
   const mimeTypes = {
@@ -423,7 +449,7 @@ async function processDecryption(file, password, updateStatus) {
 
   return {
     blob,
-    filename: originalFilename,
+    filename: restoredFilename,
     originalSize: file.size,
     decryptedSize: decryptedBuffer.byteLength,
     extension: cleanExt,
@@ -581,17 +607,29 @@ document.addEventListener('DOMContentLoaded', () => {
     setEncryptFile(e.target.files[0]);
   });
 
-  encDropzone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    encDropzone.classList.add('drag-active');
+  // Encryption Dropzone drag & drop highlighting
+  ['dragenter', 'dragover'].forEach((eventName) => {
+    encDropzone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      encDropzone.classList.add('drag-active');
+    });
   });
 
-  encDropzone.addEventListener('dragleave', () => {
-    encDropzone.classList.remove('drag-active');
+  ['dragleave', 'dragend'].forEach((eventName) => {
+    encDropzone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Only remove if leaving the dropzone container itself
+      if (!encDropzone.contains(e.relatedTarget)) {
+        encDropzone.classList.remove('drag-active');
+      }
+    });
   });
 
   encDropzone.addEventListener('drop', (e) => {
     e.preventDefault();
+    e.stopPropagation();
     encDropzone.classList.remove('drag-active');
     if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       setEncryptFile(e.dataTransfer.files[0]);
@@ -743,17 +781,28 @@ document.addEventListener('DOMContentLoaded', () => {
     setDecryptFile(e.target.files[0]);
   });
 
-  decDropzone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    decDropzone.classList.add('drag-active');
+  // Decryption Dropzone drag & drop highlighting
+  ['dragenter', 'dragover'].forEach((eventName) => {
+    decDropzone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      decDropzone.classList.add('drag-active');
+    });
   });
 
-  decDropzone.addEventListener('dragleave', () => {
-    decDropzone.classList.remove('drag-active');
+  ['dragleave', 'dragend'].forEach((eventName) => {
+    decDropzone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!decDropzone.contains(e.relatedTarget)) {
+        decDropzone.classList.remove('drag-active');
+      }
+    });
   });
 
   decDropzone.addEventListener('drop', (e) => {
     e.preventDefault();
+    e.stopPropagation();
     decDropzone.classList.remove('drag-active');
     if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       setDecryptFile(e.dataTransfer.files[0]);
