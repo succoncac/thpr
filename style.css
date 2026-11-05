@@ -757,21 +757,21 @@ body {
   text-align: right;
 }
 
-.dec-preview-image-box {
+.dec-preview-media-box {
   display: flex;
   justify-content: center;
   align-items: center;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.6);
   border-radius: 0.5rem;
   overflow: hidden;
-  max-height: 280px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  max-height: 340px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   padding: 0.35rem;
 }
 
 .dec-preview-image {
   max-width: 100%;
-  max-height: 270px;
+  max-height: 320px;
   object-fit: contain;
   border-radius: 0.375rem;
   display: block;
@@ -781,6 +781,15 @@ body {
 
 .dec-preview-image:hover {
   transform: scale(1.02);
+}
+
+.dec-preview-video {
+  width: 100%;
+  max-height: 320px;
+  border-radius: 0.375rem;
+  background: #000;
+  outline: none;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 
 /* Primary Manual Download Button */

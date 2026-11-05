@@ -261,14 +261,15 @@
               <span>Giải mã thành công</span>
             </div>
 
-            <!-- In-Browser Image Preview Container -->
+            <!-- In-Browser Image and Video Preview Container -->
             <div id="dec-preview-container" class="dec-preview-container">
               <div class="dec-preview-header">
-                <span class="dec-preview-badge">Xem trước ảnh trực tiếp</span>
+                <span id="dec-preview-badge" class="dec-preview-badge">Xem trước tệp đa phương tiện</span>
                 <span id="dec-preview-meta" class="dec-preview-meta"></span>
               </div>
-              <div class="dec-preview-image-box">
-                <img id="dec-preview-image" class="dec-preview-image" alt="Xem trước ảnh giải mã" />
+              <div class="dec-preview-media-box">
+                <img id="dec-preview-image" class="dec-preview-image" alt="Xem trước ảnh giải mã" style="display: none;" />
+                <video id="dec-preview-video" class="dec-preview-video" controls playsinline preload="metadata" style="display: none;"></video>
               </div>
             </div>
 

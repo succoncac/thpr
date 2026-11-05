@@ -613,7 +613,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // In-Browser Preview DOM Elements
   const decPreviewContainer = document.getElementById('dec-preview-container');
+  const decPreviewBadge = document.getElementById('dec-preview-badge');
   const decPreviewImage = document.getElementById('dec-preview-image');
+  const decPreviewVideo = document.getElementById('dec-preview-video');
   const decPreviewMeta = document.getElementById('dec-preview-meta');
 
   // Helper to update Encrypt form state
@@ -805,7 +807,16 @@ document.addEventListener('DOMContentLoaded', () => {
       URL.revokeObjectURL(state.decrypt.downloadUrl);
       state.decrypt.downloadUrl = null;
     }
-    if (decPreviewImage) decPreviewImage.src = '';
+    if (decPreviewImage) {
+      decPreviewImage.src = '';
+      decPreviewImage.style.display = 'none';
+    }
+    if (decPreviewVideo) {
+      decPreviewVideo.pause();
+      decPreviewVideo.removeAttribute('src');
+      decPreviewVideo.load();
+      decPreviewVideo.style.display = 'none';
+    }
     if (decPreviewContainer) decPreviewContainer.style.display = 'none';
 
     state.decrypt.file = file;
@@ -825,7 +836,16 @@ document.addEventListener('DOMContentLoaded', () => {
       state.decrypt.downloadUrl = null;
     }
     decFileInput.value = '';
-    if (decPreviewImage) decPreviewImage.src = '';
+    if (decPreviewImage) {
+      decPreviewImage.src = '';
+      decPreviewImage.style.display = 'none';
+    }
+    if (decPreviewVideo) {
+      decPreviewVideo.pause();
+      decPreviewVideo.removeAttribute('src');
+      decPreviewVideo.load();
+      decPreviewVideo.style.display = 'none';
+    }
     if (decPreviewContainer) decPreviewContainer.style.display = 'none';
     decPreview.classList.remove('active');
     decDropzone.style.display = 'block';
@@ -920,29 +940,61 @@ document.addEventListener('DOMContentLoaded', () => {
       state.decrypt.downloadUrl = downloadUrl;
       state.decrypt.downloadFilename = result.filename;
 
-      // Check if decrypted file is an image format
+      // Check media type (Image or Video)
       const imageExtensions = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'bmp', 'ico', 'avif'];
+      const videoExtensions = ['mp4', 'webm', 'ogg', 'mov', 'm4v', 'mkv'];
       const fileExt = (result.extension || getFileExtension(result.filename)).toLowerCase().replace(/^\./, '');
       const isImage = imageExtensions.includes(fileExt);
+      const isVideo = videoExtensions.includes(fileExt);
 
       if (isImage && decPreviewImage && decPreviewContainer) {
         decPreviewImage.src = downloadUrl;
+        decPreviewImage.style.display = 'block';
+        if (decPreviewVideo) {
+          decPreviewVideo.pause();
+          decPreviewVideo.removeAttribute('src');
+          decPreviewVideo.style.display = 'none';
+        }
+        if (decPreviewBadge) decPreviewBadge.textContent = 'Xem trước ảnh trực tiếp';
         if (decPreviewMeta) {
           decPreviewMeta.textContent = `${result.filename} (${formatBytes(result.decryptedSize)})`;
         }
         decPreviewContainer.style.display = 'block';
-      } else if (decPreviewContainer) {
-        decPreviewContainer.style.display = 'none';
+      } else if (isVideo && decPreviewVideo && decPreviewContainer) {
+        decPreviewVideo.src = downloadUrl;
+        decPreviewVideo.style.display = 'block';
+        if (decPreviewImage) {
+          decPreviewImage.src = '';
+          decPreviewImage.style.display = 'none';
+        }
+        if (decPreviewBadge) decPreviewBadge.textContent = 'Trình phát video trực tiếp';
+        if (decPreviewMeta) {
+          decPreviewMeta.textContent = `${result.filename} (${formatBytes(result.decryptedSize)})`;
+        }
+        decPreviewContainer.style.display = 'block';
+      } else {
+        if (decPreviewContainer) decPreviewContainer.style.display = 'none';
         if (decPreviewImage) decPreviewImage.src = '';
+        if (decPreviewVideo) {
+          decPreviewVideo.pause();
+          decPreviewVideo.removeAttribute('src');
+        }
       }
 
       // Display result details with manual download prompt
+      let promptText = '✓ Tệp đã được giải mã thành công. Nhấn nút bên dưới để tải về máy.';
+      if (isImage) {
+        promptText = '✓ Ảnh đã được giải mã và xem trước trực tiếp ở trên. Nhấn nút bên dưới để tải về máy.';
+      } else if (isVideo) {
+        promptText = '✓ Video đã được giải mã và phát trực tiếp ở trên. Nhấn nút bên dưới để tải về máy.';
+      }
+
       decResultDetails.innerHTML = `
         Tên tệp phục hồi: <strong>${result.filename}</strong><br>
         Dung lượng: <strong>${formatBytes(result.decryptedSize)}</strong><br>
         Thời gian xử lý: <strong>${result.duration} ms</strong><br>
         <span style="color: #94a3b8; font-size: 0.85rem; display: inline-block; margin-top: 0.35rem;">
-          ${isImage ? '✓ Ảnh đã giải mã và xem trước ở trên. Nhấn nút bên dưới để tải về máy.' : '✓ Tệp đã được giải mã thành công. Nhấn nút bên dưới để tải về máy.'}
+          ${promptText}
         </span>
       `;
       decResultCard.classList.add('active');
