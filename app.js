@@ -154,17 +154,25 @@ function deriveMimeType(filename) {
   return mimeMap[ext] || 'application/octet-stream';
 }
 
-function readFileAsArrayBuffer(file) {
-  return new Promise((resolve, reject) => {
-    if (!file || !(file instanceof Blob)) {
-      return reject(new Error('Tệp tin không tồn tại hoặc đã bị hủy. Vui lòng chọn lại!'));
+async function readFileAsArrayBuffer(file) {
+  if (!file || !(file instanceof Blob)) {
+    throw new Error('Tệp tin không tồn tại hoặc đã bị hủy. Vui lòng chọn lại!');
+  }
+  // Phương thức đọc nhanh và ổn định nhất của trình duyệt hiện đại
+  if (typeof file.arrayBuffer === 'function') {
+    try {
+      return await file.arrayBuffer();
+    } catch {
+      // Fallback sang FileReader nếu môi trường trình duyệt yêu cầu
     }
+  }
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       if (reader.result instanceof ArrayBuffer) {
         resolve(reader.result);
       } else {
-        reject(new Error('Định dạng dữ liệu trả về không tương thích (ArrayBuffer required).'));
+        reject(new Error('Định dạng dữ liệu trả về không tương thích.'));
       }
     };
     reader.onerror = () => {
@@ -242,15 +250,22 @@ async function deriveExtremeArgon2idHash(password, salt, updateProgress) {
 
   // 2. Chuyển sang module WebAssembly hash-wasm tối ưu cao nếu chưa có kết quả
   if (!rawHashBytes) {
-    rawHashBytes = await argon2id({
-      password: password,
-      salt: salt,
-      parallelism: TH10_ARGON2_PARALLELISM,
-      iterations: TH10_ARGON2_ITERATIONS,
-      memorySize: TH10_ARGON2_MEMORY_KB,
-      hashLength: TH10_ARGON2_HASH_LEN, // 96 bytes
-      outputType: 'binary'
-    });
+    try {
+      rawHashBytes = await argon2id({
+        password: password,
+        salt: salt,
+        parallelism: TH10_ARGON2_PARALLELISM,
+        iterations: TH10_ARGON2_ITERATIONS,
+        memorySize: TH10_ARGON2_MEMORY_KB,
+        hashLength: TH10_ARGON2_HASH_LEN, // 96 bytes
+        outputType: 'binary'
+      });
+    } catch (wasmErr) {
+      if (wasmErr && (wasmErr.name === 'RangeError' || String(wasmErr.message).toLowerCase().includes('memory') || String(wasmErr.message).toLowerCase().includes('allocate'))) {
+        throw new Error('Thiết bị không đủ bộ nhớ RAM khả dụng để cấp phát 256MB cho WebAssembly. Vui lòng đóng bớt ứng dụng khác.');
+      }
+      throw wasmErr;
+    }
   }
 
   if (!rawHashBytes || rawHashBytes.length !== 96) {
@@ -286,11 +301,17 @@ async function extractTripleSubKeys(raw96Bytes) {
 // ============================================================================
 function assembleInternalPayload(file, fileBuffer) {
   const filename = file.name || 'unnamed_secure_file';
-  const filenameBytes = enc.encode(filename);
+  let filenameBytes = enc.encode(filename);
+  if (filenameBytes.length > 65535) {
+    filenameBytes = filenameBytes.subarray(0, 65535);
+  }
   const filenameLength = filenameBytes.length;
 
   const mimeType = file.type || deriveMimeType(filename);
-  const mimeBytes = enc.encode(mimeType);
+  let mimeBytes = enc.encode(mimeType);
+  if (mimeBytes.length > 65535) {
+    mimeBytes = mimeBytes.subarray(0, 65535);
+  }
   const mimeLength = mimeBytes.length;
 
   const canaryBytes = enc.encode(CANARY_AI_DIRECTIVE);
