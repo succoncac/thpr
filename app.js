@@ -201,15 +201,15 @@ function evaluatePasswordEntropy(password) {
 
   switch (score) {
     case 1:
-      return { score: 1, text: 'Rất yếu (Dễ bị brute-force)', color: '#f43f5e' };
+      return { score: 1, text: 'Rất yếu', color: '#f43f5e' };
     case 2:
       return { score: 2, text: 'Trung bình', color: '#f59e0b' };
     case 3:
-      return { score: 3, text: 'Mạnh (Chuẩn Doanh nghiệp)', color: '#06b6d4' };
+      return { score: 3, text: 'Mạnh', color: '#06b6d4' };
     case 4:
-      return { score: 4, text: 'Tối thượng (Kháng siêu máy tính)', color: '#10b981' };
+      return { score: 4, text: 'Rất mạnh', color: '#10b981' };
     default:
-      return { score: 0, text: 'Chưa đủ an toàn', color: '#f43f5e' };
+      return { score: 0, text: 'Yếu', color: '#f43f5e' };
   }
 }
 
