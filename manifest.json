@@ -1,0 +1,38 @@
+{
+  "id": "/",
+  "name": "TH10 - Mã Hóa & Giải Mã Tệp Tin An Toàn",
+  "short_name": "TH10 Crypt",
+  "description": "Ứng dụng mã hóa và giải mã tệp tin chuẩn TH10 client-side không lưu trữ dữ liệu, bảo mật bộ nhớ, chống lỗi runtime.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#070a12",
+  "theme_color": "#070a12",
+  "categories": ["utilities", "security"],
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

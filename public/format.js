@@ -81,6 +81,9 @@
   // BOUNDARY-CHECKED SAFE DATA WRITER & READER
   // ============================================================================
   function DataWriter(size) {
+    if (typeof size !== 'number' || size < 0 || !Number.isFinite(size)) {
+      throw new AppError('E_PAYLOAD', 'Kích thước DataWriter không hợp lệ.');
+    }
     this.buffer = new Uint8Array(size);
     this.view = new DataView(this.buffer.buffer, this.buffer.byteOffset, this.buffer.byteLength);
     this.cursor = 0;
@@ -111,7 +114,7 @@
   };
 
   DataWriter.prototype.writeBytes = function (bytes) {
-    if (this.cursor + bytes.byteLength > this.buffer.byteLength) {
+    if (!bytes || this.cursor + bytes.byteLength > this.buffer.byteLength) {
       throw new AppError('E_PAYLOAD', 'Tràn bộ đệm khi ghi chuỗi byte nhị phân.');
     }
     this.buffer.set(bytes, this.cursor);
@@ -119,8 +122,15 @@
   };
 
   function DataReader(input) {
+    if (!input) {
+      throw new AppError('E_TOO_SHORT');
+    }
     if (input instanceof Uint8Array) {
       this.buffer = input;
+    } else if (input instanceof ArrayBuffer) {
+      this.buffer = new Uint8Array(input);
+    } else if (ArrayBuffer.isView(input)) {
+      this.buffer = new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
     } else {
       this.buffer = new Uint8Array(input);
     }
@@ -160,7 +170,7 @@
   };
 
   DataReader.prototype.readBytes = function (length) {
-    if (length < 0 || this.cursor + length > this.buffer.byteLength) {
+    if (typeof length !== 'number' || length < 0 || !Number.isFinite(length) || this.cursor + length > this.buffer.byteLength) {
       throw new AppError('E_TOO_SHORT', 'Vượt quá giới hạn bộ đệm khi trích xuất mảng byte.');
     }
     var slice = this.buffer.subarray(this.cursor, this.cursor + length);
@@ -172,10 +182,13 @@
   // HEADER 64-BYTE SPECIFICATION
   // ============================================================================
   function buildHeader64(memKiB, iterations, parallelism, salt, nonce1, nonce2, nonce3) {
-    if (salt.byteLength !== SALT_SIZE) {
+    if (!salt || salt.byteLength !== SALT_SIZE) {
       throw new AppError('E_PAYLOAD', 'Kích thước Salt bắt buộc phải là 16 bytes.');
     }
-    if (nonce1.byteLength !== NONCE_SIZE || nonce2.byteLength !== NONCE_SIZE || nonce3.byteLength !== NONCE_SIZE) {
+    if (!nonce1 || !nonce2 || !nonce3 ||
+        nonce1.byteLength !== NONCE_SIZE ||
+        nonce2.byteLength !== NONCE_SIZE ||
+        nonce3.byteLength !== NONCE_SIZE) {
       throw new AppError('E_PAYLOAD', 'Mỗi Nonce bắt buộc phải có kích thước 12 bytes.');
     }
 
@@ -207,7 +220,7 @@
   }
 
   function parseHeader64(rawBuffer) {
-    if (rawBuffer.byteLength < HEADER_SIZE) {
+    if (!rawBuffer || rawBuffer.byteLength < HEADER_SIZE) {
       throw new AppError('E_TOO_SHORT');
     }
 
@@ -382,6 +395,7 @@
       // 4. Loại bỏ chuỗi traversal '..' và dấu gạch dưới / chấm đầu
       .replace(/\.{2,}/g, '_')
       .replace(/^[\._]+/, '')
+      .replace(/\.+$/, '')
       .trim();
 
     // 5. Giới hạn độ dài tối đa 120 ký tự

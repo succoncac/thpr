@@ -143,6 +143,12 @@
       if (U && typeof U.setupTabs === 'function') {
         U.setupTabs();
       }
+      if (U && typeof U.setupAntiCopyProtection === 'function') {
+        U.setupAntiCopyProtection();
+      }
+      if (U && typeof U.setupPWAInstall === 'function') {
+        U.setupPWAInstall();
+      }
       setActionsDisabled(false);
     } catch (err) {
       isLibraryReady = false;
@@ -411,6 +417,7 @@
       encStatusText.textContent = 'Đang đọc tệp tin vào bộ nhớ...';
 
       var rawFileBuffer = null;
+      var fileBytes = null;
       var payload = null;
       var masterKey = null;
 
@@ -421,7 +428,7 @@
 
         // 2. Đọc tệp
         rawFileBuffer = await readFileBuffer(selectedEncryptFile);
-        var fileBytes = new Uint8Array(rawFileBuffer);
+        fileBytes = new Uint8Array(rawFileBuffer);
 
         encProgressFill.style.width = '35%';
         encStatusText.textContent = 'Đang đóng gói cấu trúc và đệm ngẫu nhiên...';
@@ -466,10 +473,10 @@
 
         // 6. Dẫn xuất 3 Stage Keys và Mã hóa 3 tầng
         var stageKeys = await C.deriveStageKeys(masterKey, salt, 'encrypt');
-        masterKey = null;
+        masterKey = null; // deriveStageKeys đã wipe masterKey
 
         var finalCipherBytes = await C.encryptCascade(payload, stageKeys, header);
-        payload = null;
+        payload = null; // encryptCascade đã wipe payload
 
         encProgressFill.style.width = '100%';
         encStatusText.textContent = 'Mã hóa hoàn tất!';
@@ -498,6 +505,7 @@
           showEncryptError('Đã xảy ra lỗi trong quá trình mã hóa: ' + (err.message || 'Lỗi không xác định'));
         }
       } finally {
+        F.wipe(fileBytes);
         F.wipe(rawFileBuffer);
         F.wipe(payload);
         F.wipe(masterKey);
@@ -569,8 +577,10 @@
       decStatusText.textContent = 'Đang đọc tệp tin mã hóa...';
 
       var encryptedBuffer = null;
+      var fileBytes = null;
       var decryptedPayload = null;
       var masterKey = null;
+      var payload = null;
 
       var startTime = performance.now();
 
@@ -579,7 +589,7 @@
 
         // 2. Đọc tệp .th
         encryptedBuffer = await readFileBuffer(selectedDecryptFile);
-        var fileBytes = new Uint8Array(encryptedBuffer);
+        fileBytes = new Uint8Array(encryptedBuffer);
 
         decProgressFill.style.width = '30%';
         decStatusText.textContent = 'Đang kiểm tra Header 64 byte và tham số KDF...';
@@ -608,7 +618,7 @@
 
         // 5. Dẫn xuất 3 Stage Keys và Giải mã 3 tầng
         var stageKeys = await C.deriveStageKeys(masterKey, header.salt, 'decrypt');
-        masterKey = null;
+        masterKey = null; // deriveStageKeys đã wipe masterKey
 
         decryptedPayload = await C.decryptCascade(fileBytes, stageKeys, header);
 
@@ -617,7 +627,9 @@
         await C.yieldEventLoop();
 
         // 6. Bóc tách Payload & Xác thực Canary
-        var payload = F.unpackPayload(decryptedPayload);
+        payload = F.unpackPayload(decryptedPayload);
+        // Wipe decryptedPayload ngay sau khi unpackPayload đã copy dữ liệu cần thiết
+        F.wipe(decryptedPayload);
         decryptedPayload = null;
 
         decProgressFill.style.width = '100%';
@@ -652,9 +664,13 @@
           showDecryptError('E_AUTH_FAIL');
         }
       } finally {
+        F.wipe(fileBytes);
         F.wipe(encryptedBuffer);
         F.wipe(decryptedPayload);
         F.wipe(masterKey);
+        if (payload && payload.content) {
+          F.wipe(payload.content);
+        }
 
         isBusy = false;
         setActionsDisabled(false);
@@ -677,11 +693,21 @@
     });
   }
 
+  function boot() {
+    if (U && typeof U.setupAntiCopyProtection === 'function') {
+      U.setupAntiCopyProtection();
+    }
+    if (U && typeof U.setupPWAInstall === 'function') {
+      U.setupPWAInstall();
+    }
+    initializeApp();
+  }
+
   // Khởi động ứng dụng khi trang đã sẵn sàng
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initializeApp);
+    document.addEventListener('DOMContentLoaded', boot);
   } else {
-    initializeApp();
+    boot();
   }
 
 })();

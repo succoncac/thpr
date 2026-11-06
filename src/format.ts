@@ -443,6 +443,7 @@ export function sanitizeFilename(filename: string): string {
     // 4. Loại bỏ chuỗi traversal '..' và dấu gạch dưới / chấm đầu
     .replace(/\.{2,}/g, '_')
     .replace(/^[\._]+/, '')
+    .replace(/\.+$/, '')
     .trim();
 
   // 5. Giới hạn độ dài tối đa 120 ký tự
