@@ -2,332 +2,464 @@
 <html lang="vi">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
     <title>TH10 - Mã Hóa &amp; Giải Mã Tệp Tin An Toàn</title>
     <meta name="description" content="Ứng dụng mã hóa và giải mã tệp tin chuẩn TH10 client-side không lưu trữ dữ liệu, bảo mật bộ nhớ, chống lỗi runtime." />
     <meta property="og:title" content="TH10 - Mã Hóa &amp; Giải Mã Tệp Tin An Toàn" />
     <meta property="og:description" content="Ứng dụng mã hóa và giải mã tệp tin chuẩn TH10 client-side không lưu trữ dữ liệu, bảo mật bộ nhớ, chống lỗi runtime." />
     <meta property="og:type" content="website" />
-    <link rel="stylesheet" href="/style.css" />
+    <meta name="theme-color" content="#070a12" />
+    <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <!-- Ambient Background Glow -->
+    <div class="ambient-glow" aria-hidden="true"></div>
+
     <div class="app-container">
       <!-- Header -->
-      <header class="header">
-        <div class="brand-title-wrap">
-          <div class="brand-icon-shield" aria-hidden="true">
+      <header class="app-header">
+        <div class="brand-badge-row">
+          <div class="brand-shield" aria-hidden="true">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              <rect x="9" y="11" width="6" height="5" rx="1"></rect>
+              <path d="M10 11V9a2 2 0 0 1 4 0v2"></path>
             </svg>
           </div>
-          <h1 class="app-title">TH10 Crypt</h1>
+          <span class="version-pill">TH10 v1.0</span>
         </div>
-        <p class="app-subtitle">
-          Mã hóa và giải mã tệp tin cục bộ trên thiết bị của bạn. Không có máy chủ, không thu thập dữ liệu.
+
+        <h1 class="app-title">Mã Hóa &amp; Giải Mã Tệp Tin An Toàn</h1>
+        <p class="app-tagline">
+          Bảo mật cấp độ cao với Argon2id và 3 tầng AES-256-GCM lồng nhau. 100% xử lý cục bộ trên trình duyệt, không có máy chủ, không lưu vết.
         </p>
-        <div class="security-warning-note">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path>
-            <line x1="12" y1="9" x2="12" y2="13"></line>
-            <line x1="12" y1="17" x2="12.01" y2="17"></line>
-          </svg>
-          <span>Lưu ý quan trọng: Quên mật khẩu là mất dữ liệu vĩnh viễn. Không có phương thức khôi phục.</span>
+
+        <!-- Prominent Security Warning -->
+        <div class="security-warning-card" role="note">
+          <div class="warning-icon-wrap" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+          </div>
+          <div class="warning-text">
+            <strong>Lưu ý quan trọng:</strong> Quên mật khẩu là mất dữ liệu vĩnh viễn. Không có máy chủ lưu trữ và không có cơ chế khôi phục.
+          </div>
         </div>
       </header>
 
-      <!-- Library Status Notice (chỉ hiển thị khi đang kiểm tra hoặc lỗi khởi động) -->
-      <div id="lib-status-notice" class="lib-notice-bar" style="display: none;">
-        <span>Đang khởi tạo thư viện mật mã...</span>
-        <button type="button" id="btn-retry-lib" class="btn-retry-init" style="display: none;">Thử lại</button>
+      <!-- Library Status Notice (Chỉ xuất hiện nếu thư viện chưa sẵn sàng) -->
+      <div id="lib-status-notice" class="lib-status-banner" style="display: none;">
+        <div class="lib-spinner" aria-hidden="true"></div>
+        <span class="lib-status-msg">Đang khởi tạo thư viện mật mã Argon2id WASM...</span>
+        <button type="button" id="btn-retry-lib" class="btn-retry-action" style="display: none;">Thử lại</button>
       </div>
 
-      <!-- Main Cryptographic Workspace (2 cột) -->
-      <main class="crypto-bento-grid">
-        <!-- 1. ENCRYPTION PANEL -->
-        <section class="bento-card card-encrypt" aria-labelledby="encrypt-heading">
-          <div class="card-header">
-            <div class="header-left">
-              <div class="panel-icon-badge icon-enc">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-                </svg>
-              </div>
-              <h2 id="encrypt-heading" class="card-title">Mã Hóa Tệp Tin</h2>
-            </div>
-            <span class="status-tag tag-emerald">Đầu ra: .th</span>
-          </div>
-
-          <!-- Encrypt Dropzone -->
-          <div id="enc-dropzone" class="dropzone dropzone-enc" role="button" tabindex="0">
-            <input type="file" id="enc-file-input" />
-            <div class="dropzone-art">
-              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="17 8 12 3 7 8"></polyline>
-                <line x1="12" y1="3" x2="12" y2="15"></line>
-              </svg>
-            </div>
-            <div class="dropzone-label">Chọn tệp tin hoặc kéo thả vào đây</div>
-            <div class="dropzone-hint">Giới hạn tối đa 200 MB &bull; Mọi định dạng</div>
-          </div>
-
-          <!-- Encrypt File Preview Selected -->
-          <div id="enc-file-preview" class="file-preview-strip">
-            <div class="file-preview-content">
-              <div class="file-ext-icon">TỆP</div>
-              <div class="file-meta-col">
-                <div id="enc-file-name" class="file-name-text">filename.dat</div>
-                <div id="enc-file-size" class="file-size-text">0 KB</div>
-              </div>
-            </div>
-            <button type="button" id="enc-btn-remove" class="btn-icon-clear" title="Hủy chọn tệp" aria-label="Xóa tệp đã chọn">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            </button>
-          </div>
-
-          <!-- Encrypt Password Input Group -->
-          <div class="form-field-group">
-            <div class="label-row">
-              <label class="field-label" for="enc-password">Mật khẩu bảo vệ</label>
-              <span id="pwd-strength-label" class="pwd-strength-txt">Chưa nhập mật khẩu</span>
-            </div>
-            <div class="input-glow-wrapper">
-              <span class="input-left-icon" aria-hidden="true">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-                </svg>
-              </span>
-              <input type="password" id="enc-password" class="field-input" placeholder="Nhập mật khẩu an toàn..." autocomplete="new-password" />
-              <button type="button" id="enc-btn-toggle-pwd" class="btn-input-icon" title="Hiện/ẩn mật khẩu" aria-label="Hiện mật khẩu">
-                <svg class="eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                  <circle cx="12" cy="12" r="3"></circle>
-                </svg>
-              </button>
-            </div>
-
-            <!-- Password Entropy Meter -->
-            <div class="strength-meter-bar">
-              <div id="pwd-bar-1" class="strength-segment"></div>
-              <div id="pwd-bar-2" class="strength-segment"></div>
-              <div id="pwd-bar-3" class="strength-segment"></div>
-              <div id="pwd-bar-4" class="strength-segment"></div>
-            </div>
-          </div>
-
-          <!-- Encrypt Action Button -->
-          <button type="button" id="enc-btn-action" class="action-btn btn-enc-submit" disabled>
+      <!-- Mode Switcher Tabs -->
+      <nav class="mode-tabs-nav" aria-label="Chế độ làm việc">
+        <div class="mode-tabs-wrapper" role="tablist">
+          <button type="button" id="tab-encrypt" class="mode-tab-btn active" role="tab" aria-selected="true" aria-controls="panel-encrypt">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
               <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
             </svg>
-            <span>Mã Hóa Tệp Tin (.th)</span>
+            <span>Mã hóa tệp tin</span>
+            <span class="tab-badge badge-enc">.th</span>
           </button>
 
-          <!-- Encrypt Progress Box -->
-          <div id="enc-status-box" class="progress-box">
-            <div class="progress-info-row">
-              <div class="spinner-rotor"></div>
-              <span id="enc-status-text" class="progress-status-msg">Đang chuẩn bị...</span>
-            </div>
-            <div class="progress-meter">
-              <div id="enc-progress-fill" class="progress-bar-fill fill-emerald"></div>
-            </div>
-          </div>
-
-          <!-- Encrypt Result Summary Card -->
-          <div id="enc-result-card" class="result-box result-enc-box">
-            <div class="result-title-bar">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12"></polyline>
-              </svg>
-              <span>Mã hóa hoàn tất! Tệp tin đã sẵn sàng.</span>
-            </div>
-            <div class="result-detail-text">
-              <div class="result-row">
-                <span class="row-label">Tên tệp xuất:</span>
-                <span id="enc-result-filename" class="row-val font-mono"></span>
-              </div>
-              <div class="result-row">
-                <span class="row-label">Kích thước:</span>
-                <span id="enc-result-size" class="row-val"></span>
-              </div>
-              <div class="result-row">
-                <span class="row-label">Thời gian xử lý:</span>
-                <span id="enc-result-time" class="row-val"></span>
-              </div>
-            </div>
-            <button type="button" id="enc-btn-download" class="action-btn btn-secondary-download">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-              </svg>
-              <span>Tải xuống</span>
-            </button>
-          </div>
-
-          <!-- Encrypt Error Banner -->
-          <div id="enc-error-banner" class="alert-banner alert-danger">
+          <button type="button" id="tab-decrypt" class="mode-tab-btn" role="tab" aria-selected="false" aria-controls="panel-decrypt">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="12" y1="8" x2="12" y2="12"></line>
-              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
             </svg>
-            <span id="enc-error-text">Lỗi mã hóa tệp</span>
-          </div>
-        </section>
+            <span>Giải mã tệp tin</span>
+            <span class="tab-badge badge-dec">Khôi phục</span>
+          </button>
+        </div>
+      </nav>
 
-        <!-- 2. DECRYPTION PANEL -->
-        <section class="bento-card card-decrypt" aria-labelledby="decrypt-heading">
-          <div class="card-header">
-            <div class="header-left">
-              <div class="panel-icon-badge icon-dec">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                  <path d="M7 11V7a5 5 0 0 1 10 0"></path>
-                </svg>
-              </div>
-              <h2 id="decrypt-heading" class="card-title">Giải Mã Tệp Tin</h2>
-            </div>
-            <span class="status-tag tag-indigo">Đầu vào: .th</span>
-          </div>
-
-          <!-- Decrypt Dropzone -->
-          <div id="dec-dropzone" class="dropzone dropzone-dec" role="button" tabindex="0">
-            <input type="file" id="dec-file-input" accept=".th" />
-            <div class="dropzone-art">
-              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                <polyline points="14 2 14 8 20 8"></polyline>
-                <line x1="12" y1="18" x2="12" y2="12"></line>
-                <polyline points="9 15 12 18 15 15"></polyline>
-              </svg>
-            </div>
-            <div class="dropzone-label">Chọn tệp .th hoặc kéo thả vào đây</div>
-            <div class="dropzone-hint">Định dạng chuẩn TH10</div>
-          </div>
-
-          <!-- Decrypt File Preview Selected -->
-          <div id="dec-file-preview" class="file-preview-strip preview-dec">
-            <div class="file-preview-content">
-              <div class="file-ext-icon icon-th">.TH</div>
-              <div class="file-meta-col">
-                <div id="dec-file-name" class="file-name-text">protected.th</div>
-                <div id="dec-file-size" class="file-size-text">0 KB</div>
+      <!-- Workspace Panels Container -->
+      <main class="panels-viewport">
+        <!-- ================================================================ -->
+        <!-- 1. ENCRYPTION PANEL -->
+        <!-- ================================================================ -->
+        <section id="panel-encrypt" class="workspace-panel panel-active" role="tabpanel" aria-labelledby="tab-encrypt">
+          <div class="panel-card card-encrypt-theme">
+            <div class="panel-card-header">
+              <div class="panel-title-group">
+                <div class="panel-icon-circle icon-enc-glow">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                  </svg>
+                </div>
+                <div>
+                  <h2 class="panel-title">Mã Hóa Tệp Tin</h2>
+                  <p class="panel-desc">Đóng gói an toàn với đệm kích thước ngẫu nhiên và 3 lớp AES-256-GCM.</p>
+                </div>
               </div>
             </div>
-            <button type="button" id="dec-btn-remove" class="btn-icon-clear" title="Hủy chọn tệp" aria-label="Xóa tệp .th">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            </button>
-          </div>
 
-          <!-- Decrypt Password Input Group -->
-          <div class="form-field-group">
-            <div class="label-row">
-              <label class="field-label" for="dec-password">Mật khẩu giải mã</label>
+            <!-- Encrypt Dropzone -->
+            <div id="enc-dropzone" class="dropzone dropzone-encrypt" role="button" tabindex="0" aria-label="Chọn hoặc kéo thả tệp cần mã hóa">
+              <input type="file" id="enc-file-input" aria-hidden="true" />
+              <div class="dropzone-visual">
+                <div class="dropzone-icon-bubble">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                  </svg>
+                </div>
+                <div class="dropzone-title">Kéo &amp; thả tệp tin vào đây</div>
+                <div class="dropzone-sub">hoặc <span class="dropzone-link">chọn tệp từ thiết bị</span></div>
+                <div class="dropzone-limit">Hỗ trợ mọi định dạng &bull; Dung lượng tối đa 200 MB</div>
+              </div>
             </div>
-            <div class="input-glow-wrapper wrapper-dec">
-              <span class="input-left-icon" aria-hidden="true">
+
+            <!-- Encrypt File Preview Selected -->
+            <div id="enc-file-preview" class="file-chip-card" style="display: none;">
+              <div class="file-chip-left">
+                <div class="file-type-pill">TỆP</div>
+                <div class="file-chip-meta">
+                  <div id="enc-file-name" class="file-name-truncate">filename.dat</div>
+                  <div id="enc-file-size" class="file-size-badge">0 KB</div>
+                </div>
+              </div>
+              <button type="button" id="enc-btn-remove" class="btn-chip-remove" title="Hủy chọn tệp" aria-label="Xóa tệp đã chọn">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                  <path d="M7 11V7a5 5 0 0 1 10 0"></path>
-                </svg>
-              </span>
-              <input type="password" id="dec-password" class="field-input" placeholder="Nhập mật khẩu đã dùng khi mã hóa..." autocomplete="current-password" />
-              <button type="button" id="dec-btn-toggle-pwd" class="btn-input-icon" title="Hiện/ẩn mật khẩu" aria-label="Hiện mật khẩu">
-                <svg class="eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                  <circle cx="12" cy="12" r="3"></circle>
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
                 </svg>
               </button>
             </div>
-          </div>
 
-          <!-- Decrypt Action Button -->
-          <button type="button" id="dec-btn-action" class="action-btn btn-dec-submit" disabled>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-              <path d="M7 11V7a5 5 0 0 1 10 0"></path>
-            </svg>
-            <span>Giải Mã Tệp Tin</span>
-          </button>
+            <!-- Password Form Fields -->
+            <div class="form-inputs-cluster">
+              <!-- Encrypt Password -->
+              <div class="form-field-item">
+                <div class="field-label-bar">
+                  <label class="field-label" for="enc-password">Mật khẩu bảo vệ</label>
+                  <span id="pwd-strength-label" class="strength-indicator strength-none">Chưa nhập mật khẩu</span>
+                </div>
+                <div class="input-container">
+                  <span class="input-lead-icon" aria-hidden="true">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                    </svg>
+                  </span>
+                  <input
+                    type="password"
+                    id="enc-password"
+                    class="secure-text-input"
+                    placeholder="Nhập mật khẩu an toàn..."
+                    autocomplete="new-password"
+                    autocorrect="off"
+                    autocapitalize="off"
+                    spellcheck="false"
+                    data-lpignore="true"
+                    data-form-type="other"
+                  />
+                  <button type="button" id="enc-toggle-pwd" class="btn-eye-toggle" aria-label="Hiện mật khẩu">
+                    <svg class="icon-eye-open" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path>
+                      <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                    <svg class="icon-eye-closed" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"></path>
+                      <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"></path>
+                      <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"></path>
+                      <line x1="2" y1="2" x2="22" y2="22"></line>
+                    </svg>
+                  </button>
+                </div>
+              </div>
 
-          <!-- Decrypt Progress Box -->
-          <div id="dec-status-box" class="progress-box">
-            <div class="progress-info-row">
-              <div class="spinner-rotor rotor-indigo"></div>
-              <span id="dec-status-text" class="progress-status-msg">Đang chuẩn bị...</span>
+              <!-- Encrypt Confirm Password -->
+              <div class="form-field-item">
+                <div class="field-label-bar">
+                  <label class="field-label" for="enc-confirm-password">Xác nhận mật khẩu</label>
+                </div>
+                <div class="input-container">
+                  <span class="input-lead-icon" aria-hidden="true">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                    </svg>
+                  </span>
+                  <input
+                    type="password"
+                    id="enc-confirm-password"
+                    class="secure-text-input"
+                    placeholder="Nhập lại mật khẩu để xác nhận..."
+                    autocomplete="new-password"
+                    autocorrect="off"
+                    autocapitalize="off"
+                    spellcheck="false"
+                    data-lpignore="true"
+                    data-form-type="other"
+                  />
+                  <button type="button" id="enc-toggle-confirm-pwd" class="btn-eye-toggle" aria-label="Hiện mật khẩu">
+                    <svg class="icon-eye-open" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path>
+                      <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                    <svg class="icon-eye-closed" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"></path>
+                      <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"></path>
+                      <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"></path>
+                      <line x1="2" y1="2" x2="22" y2="22"></line>
+                    </svg>
+                  </button>
+                </div>
+              </div>
             </div>
-            <div class="progress-meter">
-              <div id="dec-progress-fill" class="progress-bar-fill fill-indigo"></div>
-            </div>
-          </div>
 
-          <!-- Decrypt Success Box -->
-          <div id="dec-result-card" class="result-box result-dec-box">
-            <div class="result-title-bar bar-dec">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12"></polyline>
+            <!-- Encrypt Submit Button -->
+            <button type="button" id="enc-btn-submit" class="submit-action-btn btn-enc-style">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
               </svg>
-              <span>Giải mã thành công!</span>
-            </div>
-            <div class="result-detail-text">
-              <div class="result-row">
-                <span class="row-label">Tên tệp phục hồi:</span>
-                <span id="dec-result-filename" class="row-val font-mono"></span>
-              </div>
-              <div class="result-row">
-                <span class="row-label">Kích thước:</span>
-                <span id="dec-result-size" class="row-val"></span>
-              </div>
-              <div class="result-row">
-                <span class="row-label">Định dạng MIME:</span>
-                <span id="dec-result-mime" class="row-val"></span>
-              </div>
-              <div class="result-row">
-                <span class="row-label">Thời gian:</span>
-                <span id="dec-result-time" class="row-val"></span>
-              </div>
-            </div>
-            <button type="button" id="dec-btn-download" class="action-btn btn-primary-download">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-              </svg>
-              <span>Tải xuống</span>
+              <span>Mã hóa tệp</span>
             </button>
-          </div>
 
-          <!-- Decrypt Error Banner -->
-          <div id="dec-error-banner" class="alert-banner alert-danger">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="12" y1="8" x2="12" y2="12"></line>
-              <line x1="12" y1="16" x2="12.01" y2="16"></line>
-            </svg>
-            <span id="dec-error-text">Mật khẩu không chính xác hoặc tệp đã bị can thiệp cấu trúc</span>
+            <!-- Encrypt Dynamic Progress Bar -->
+            <div id="enc-progress-container" class="process-progress-box" style="display: none;">
+              <div class="progress-track-rail">
+                <div id="enc-progress-fill" class="progress-fill-active fill-emerald-gradient"></div>
+              </div>
+              <div id="enc-status-text" class="process-status-msg">Đang chuẩn bị dữ liệu...</div>
+            </div>
+
+            <!-- Encrypt Result Area -->
+            <div id="enc-result-card" class="result-display-panel result-success-theme" style="display: none;">
+              <div class="result-top-row">
+                <div class="result-icon-badge badge-emerald-soft">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                </div>
+                <div class="result-text-stack">
+                  <div class="result-heading">Mã hóa hoàn tất thành công!</div>
+                  <div id="enc-result-filename" class="result-code-filename">th-00000000.th</div>
+                </div>
+              </div>
+
+              <div class="metrics-grid">
+                <div class="metric-cell">
+                  <span class="metric-label">Kích thước:</span>
+                  <span id="enc-result-size" class="metric-val">0 KB</span>
+                </div>
+                <div class="metric-cell">
+                  <span class="metric-label">Thời gian:</span>
+                  <span id="enc-result-time" class="metric-val">0 ms</span>
+                </div>
+              </div>
+
+              <button type="button" id="enc-btn-download" class="download-trigger-btn btn-download-emerald">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>Tải xuống</span>
+              </button>
+            </div>
+
+            <!-- Encrypt Error Banner -->
+            <div id="enc-error-banner" class="alert-callout alert-danger" style="display: none;" role="alert">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+              <span id="enc-error-text">Đã xảy ra lỗi trong quá trình xử lý</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================================================================ -->
+        <!-- 2. DECRYPTION PANEL -->
+        <!-- ================================================================ -->
+        <section id="panel-decrypt" class="workspace-panel" role="tabpanel" aria-labelledby="tab-decrypt">
+          <div class="panel-card card-decrypt-theme">
+            <div class="panel-card-header">
+              <div class="panel-title-group">
+                <div class="panel-icon-circle icon-dec-glow">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
+                  </svg>
+                </div>
+                <div>
+                  <h2 class="panel-title">Giải Mã Tệp Tin</h2>
+                  <p class="panel-desc">Gỡ bỏ 3 tầng mã hóa AES-GCM và khôi phục nguyên vẹn tệp gốc.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Decrypt Dropzone -->
+            <div id="dec-dropzone" class="dropzone dropzone-decrypt" role="button" tabindex="0" aria-label="Chọn hoặc kéo thả tệp .th cần giải mã">
+              <input type="file" id="dec-file-input" accept=".th" aria-hidden="true" />
+              <div class="dropzone-visual">
+                <div class="dropzone-icon-bubble bubble-cyan">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
+                </div>
+                <div class="dropzone-title">Kéo &amp; thả tệp .th vào đây</div>
+                <div class="dropzone-sub">hoặc <span class="dropzone-link link-cyan">chọn tệp .th từ thiết bị</span></div>
+                <div class="dropzone-limit">Định dạng tệp TH10 &bull; Dung lượng tối đa 200 MB</div>
+              </div>
+            </div>
+
+            <!-- Decrypt File Preview Selected -->
+            <div id="dec-file-preview" class="file-chip-card" style="display: none;">
+              <div class="file-chip-left">
+                <div class="file-type-pill pill-cyan">.TH</div>
+                <div class="file-chip-meta">
+                  <div id="dec-file-name" class="file-name-truncate">archive.th</div>
+                  <div id="dec-file-size" class="file-size-badge">0 KB</div>
+                </div>
+              </div>
+              <button type="button" id="dec-btn-remove" class="btn-chip-remove" title="Hủy chọn tệp" aria-label="Xóa tệp đã chọn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+
+            <!-- Decrypt Password Input Field -->
+            <div class="form-inputs-cluster">
+              <div class="form-field-item">
+                <div class="field-label-bar">
+                  <label class="field-label" for="dec-password">Mật khẩu giải mã</label>
+                </div>
+                <div class="input-container">
+                  <span class="input-lead-icon" aria-hidden="true">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                      <path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
+                    </svg>
+                  </span>
+                  <input
+                    type="password"
+                    id="dec-password"
+                    class="secure-text-input"
+                    placeholder="Nhập mật khẩu đã dùng khi mã hóa..."
+                    autocomplete="new-password"
+                    autocorrect="off"
+                    autocapitalize="off"
+                    spellcheck="false"
+                    data-lpignore="true"
+                    data-form-type="other"
+                  />
+                  <button type="button" id="dec-toggle-pwd" class="btn-eye-toggle" aria-label="Hiện mật khẩu">
+                    <svg class="icon-eye-open" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path>
+                      <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                    <svg class="icon-eye-closed" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"></path>
+                      <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"></path>
+                      <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"></path>
+                      <line x1="2" y1="2" x2="22" y2="22"></line>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Decrypt Submit Button -->
+            <button type="button" id="dec-btn-submit" class="submit-action-btn btn-dec-style">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
+              </svg>
+              <span>Giải mã tệp</span>
+            </button>
+
+            <!-- Decrypt Dynamic Progress Bar -->
+            <div id="dec-progress-container" class="process-progress-box" style="display: none;">
+              <div class="progress-track-rail">
+                <div id="dec-progress-fill" class="progress-fill-active fill-cyan-gradient"></div>
+              </div>
+              <div id="dec-status-text" class="process-status-msg">Đang giải mã...</div>
+            </div>
+
+            <!-- Decrypt Result Area -->
+            <div id="dec-result-card" class="result-display-panel result-cyan-theme" style="display: none;">
+              <div class="result-top-row">
+                <div class="result-icon-badge badge-cyan-soft">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                </div>
+                <div class="result-text-stack">
+                  <div class="result-heading">Giải mã thành công!</div>
+                  <div id="dec-result-filename" class="result-code-filename">tailieu.pdf</div>
+                </div>
+              </div>
+
+              <div class="metrics-grid">
+                <div class="metric-cell">
+                  <span class="metric-label">Kích thước:</span>
+                  <span id="dec-result-size" class="metric-val">0 KB</span>
+                </div>
+                <div class="metric-cell">
+                  <span class="metric-label">Thời gian:</span>
+                  <span id="dec-result-time" class="metric-val">0 ms</span>
+                </div>
+              </div>
+
+              <!-- Media Preview Viewport (Tùy chọn hiển thị an toàn) -->
+              <div id="dec-preview-container" class="media-preview-container" style="display: none;">
+                <div class="media-preview-header">
+                  <span class="media-preview-title">Xem trước nội dung đã giải mã:</span>
+                  <span id="dec-preview-mime" class="media-mime-pill">image/png</span>
+                </div>
+                <div id="dec-preview-viewport" class="media-preview-viewport custom-scrollbar"></div>
+              </div>
+
+              <button type="button" id="dec-btn-download" class="download-trigger-btn btn-download-cyan">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>Tải xuống</span>
+              </button>
+            </div>
+
+            <!-- Decrypt Error Banner -->
+            <div id="dec-error-banner" class="alert-callout alert-danger" style="display: none;" role="alert">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+              <span id="dec-error-text">Sai mật khẩu, hoặc tệp đã bị sửa/hỏng. Không thể phân biệt hai trường hợp này.</span>
+            </div>
           </div>
         </section>
       </main>
 
       <!-- Footer -->
-      <footer class="footer-bar">
-        <div>TH10 &bull; Mã hóa &amp; Giải mã tệp tin client-side an toàn</div>
+      <footer class="app-footer">
+        <p>TH10 Crypt &bull; Tiêu chuẩn mã hóa cấp độ quân sự chạy 100% trên thiết bị người dùng</p>
       </footer>
     </div>
 
-    <!-- Core Script -->
-    <script type="module" src="/src/app.ts"></script>
+    <!-- Core Modular Scripts (Loaded with defer in exact sequence) -->
+    <script defer src="vendor/hash-wasm.min.js"></script>
+    <script defer src="format.js"></script>
+    <script defer src="crypto.js"></script>
+    <script defer src="ui.js"></script>
+    <script defer src="app.js"></script>
   </body>
 </html>

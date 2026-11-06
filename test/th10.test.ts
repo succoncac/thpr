@@ -4,6 +4,7 @@ import {
   HEADER_SIZE,
   MAGIC_STR,
   FORMAT_VERSION,
+  CANARY,
   buildHeader64,
   parseHeader64,
   packPayload,
@@ -66,13 +67,13 @@ describe('TH10 Format & Boundary Tests', () => {
     const unpacked = unpackPayload(packed);
     assert.strictEqual(unpacked.filename, 'my_document.pdf');
     assert.strictEqual(unpacked.mimeType, 'application/pdf');
-    assert.strictEqual(unpacked.canary, 'CANARY_PLACEHOLDER');
+    assert.strictEqual(unpacked.canary, CANARY);
     assert.deepStrictEqual(unpacked.content, originalContent);
   });
 
   test('sanitizeFilename removes bidi, traversal, and control chars', () => {
     // Path traversal and dangerous characters
-    assert.strictEqual(sanitizeFilename('../../../etc/passwd'), '______etc_passwd');
+    assert.strictEqual(sanitizeFilename('../../../etc/passwd'), 'etc_passwd');
     // Bidi override characters (e.g. \u202E)
     assert.strictEqual(sanitizeFilename('test\u202Eexe.pdf'), 'testexe.pdf');
     // Leading dots
@@ -116,8 +117,7 @@ describe('TH10 Cryptography Cascade End-to-End Tests', () => {
     const decKdf = await deriveMasterKey(password, parsedHeader.salt, parsedHeader.memKiB, parsedHeader.iterations, parsedHeader.parallelism);
     const decStageKeys = await deriveStageKeys(decKdf.masterKey, parsedHeader.salt, 'decrypt');
 
-    const stage3Cipher = encryptedFile.subarray(HEADER_SIZE);
-    const decryptedPayload = await decryptCascade(stage3Cipher, parsedHeader, decStageKeys);
+    const decryptedPayload = await decryptCascade(encryptedFile, decStageKeys, parsedHeader);
 
     const unpacked = unpackPayload(decryptedPayload);
     assert.strictEqual(unpacked.filename, 'intel.docx');
@@ -146,10 +146,9 @@ describe('TH10 Cryptography Cascade End-to-End Tests', () => {
     const decKdf = await deriveMasterKey(password, parsedHeader.salt, parsedHeader.memKiB, parsedHeader.iterations, parsedHeader.parallelism);
     const decStageKeys = await deriveStageKeys(decKdf.masterKey, parsedHeader.salt, 'decrypt');
 
-    const stage3Cipher = tampered.subarray(HEADER_SIZE);
     await assert.rejects(
       async () => {
-        await decryptCascade(stage3Cipher, parsedHeader, decStageKeys);
+        await decryptCascade(tampered, decStageKeys, parsedHeader);
       },
       (err: any) => err instanceof AppError && err.code === 'E_AUTH_FAIL'
     );
